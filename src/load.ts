@@ -7,6 +7,8 @@ export interface Loaded {
   records: Map<string, DecisionRecord>;
   labels: Map<string, Expected>;
   rows: Row[];
+  /** Question definitions as sent, by version id (see Row.qv). */
+  definitions: Map<string, unknown>;
   /** Lines that were neither a record nor a label, with the reason. */
   skipped: { file: string; line: number; reason: string }[];
 }
@@ -47,5 +49,7 @@ export async function load(targets: string[]): Promise<Loaded> {
         } else skipped.push({ file, line: i + 1, reason: 'neither a record (needs run + answers/response) nor a label' });
       });
     }
-  return { records, labels, rows: toRows([...records.values()], labels), skipped };
+  const definitions = new Map<string, unknown>();
+  const rows = toRows([...records.values()], labels, definitions);
+  return { records, labels, rows, definitions, skipped };
 }

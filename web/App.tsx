@@ -5,6 +5,8 @@ import { Histogram, Reliability, Sweep, useColors } from './charts.tsx';
 
 interface Data {
   rows: Row[];
+  /** Question definitions as sent, by version id. */
+  definitions: Record<string, unknown>;
   skippedCount: number;
 }
 
@@ -183,7 +185,13 @@ export function App() {
       </aside>
       <main>
         {selected.length ? (
-          <QuestionView key={title} title={title} rows={selected} pooled={pool && !!filter.trim()} />
+          <QuestionView
+            key={title}
+            title={title}
+            rows={selected}
+            pooled={pool && !!filter.trim()}
+            definitions={data.definitions ?? {}}
+          />
         ) : (
           <div className="empty">Pick a question on the left.</div>
         )}
@@ -192,7 +200,17 @@ export function App() {
   );
 }
 
-function QuestionView({ title, rows, pooled }: { title: string; rows: Row[]; pooled: boolean }) {
+function QuestionView({
+  title,
+  rows,
+  pooled,
+  definitions,
+}: {
+  title: string;
+  rows: Row[];
+  pooled: boolean;
+  definitions: Record<string, unknown>;
+}) {
   const type = rows[0].type;
   const usual = usualThreshold(rows);
   const [t, setT] = useState(usual ?? 0.5);
@@ -206,7 +224,7 @@ function QuestionView({ title, rows, pooled }: { title: string; rows: Row[]; poo
   const features = useMemo(() => {
     const tags = new Set<string>();
     for (const r of rows) for (const k of Object.keys(r.tags)) tags.add(k);
-    const base = ['none', 'run', 'model', 'backend', 'question'];
+    const base = ['none', 'run', 'model', 'backend', 'question', ...(rows.some((r) => r.qv) ? ['version'] : [])];
     return [...base, ...[...tags].sort().map((k) => `tag:${k}`)];
   }, [rows]);
 
@@ -248,6 +266,8 @@ function QuestionView({ title, rows, pooled }: { title: string; rows: Row[]; poo
           {points.length} labeled
         </span>
       </div>
+
+      <Definition rows={rows} definitions={definitions} pooled={pooled} />
 
       <div className="controls">
         <label className="threshold">
@@ -479,6 +499,21 @@ function RecordPanel({ row, onClose }: { row: Row; onClose: () => void }) {
           )}
           <h4>All answers in this call</h4>
           <pre>{JSON.stringify(response?.answers ?? record.answers, null, 1)}</pre>
+          {record.request !== undefined && (
+            <details className="raw">
+              <summary>Raw request</summary>
+              <pre>{JSON.stringify(record.request, null, 2)}</pre>
+            </details>
+          )}
+          {record.response !== undefined && (
+            <details className="raw">
+              <summary>Raw response</summary>
+              <pre>{JSON.stringify(record.response, null, 2)}</pre>
+            </details>
+          )}
+          {record.request === undefined && record.response === undefined && (
+            <p className="muted">This record has no raw request or response, only normalized answers.</p>
+          )}
           {record.error && (
             <>
               <h4>Error</h4>
@@ -488,5 +523,91 @@ function RecordPanel({ row, onClose }: { row: Row; onClose: () => void }) {
         </>
       )}
     </div>
+  );
+}
+
+interface Version {
+  qv: string;
+  question: string;
+  n: number;
+  runs: string[];
+}
+
+/** The question as sent, once per version; rows without a request are counted separately. */
+function Definition({ rows, definitions, pooled }: { rows: Row[]; definitions: Record<string, unknown>; pooled: boolean }) {
+  const { versions, missing } = useMemo(() => {
+    const m = new Map<string, Version>();
+    let missing = 0;
+    for (const r of rows) {
+      if (!r.qv) {
+        missing++;
+        continue;
+      }
+      const v = m.get(r.qv) ?? { qv: r.qv, question: r.question, n: 0, runs: [] };
+      v.n++;
+      if (!v.runs.includes(r.run)) v.runs.push(r.run);
+      m.set(r.qv, v);
+    }
+    // Oldest first: by the first run (alphabetical, which is time order for timestamped run names), then by size.
+    const versions = [...m.values()].sort(
+      (a, b) => [...a.runs].sort()[0].localeCompare([...b.runs].sort()[0]) || b.n - a.n,
+    );
+    return { versions, missing };
+  }, [rows]);
+  const [picked, setPicked] = useState(0);
+  const current = versions[Math.min(picked, versions.length - 1)];
+
+  if (!versions.length)
+    return (
+      <p className="muted note">
+        No request was logged for these answers, so the question text is not available.
+      </p>
+    );
+
+  const runsText = (v: Version) => {
+    const runs = [...v.runs].sort();
+    return runs.length === 1 ? runs[0] : `${runs.length} runs: ${runs[0]} … ${runs.at(-1)}`;
+  };
+  const label = (v: Version, i: number) => `v${i + 1} · ${v.qv}${pooled ? ` · ${v.question}` : ''} · ${v.n}`;
+
+  return (
+    <details className="definition" open={versions.length === 1 && !pooled}>
+      <summary>
+        <span>Question as sent</span>
+        <span className="muted">
+          {versions.length === 1 ? ` · 1 version` : ` · ${versions.length} versions`}
+          {missing ? ` · ${missing} answers without a logged request` : ''}
+        </span>
+      </summary>
+      {versions.length > 1 && (
+        <div className="versions">
+          {versions.length <= 8 ? (
+            versions.map((v, i) => (
+              <button
+                key={v.qv}
+                className={v === current ? 'chip active' : 'chip'}
+                onClick={() => setPicked(i)}
+                title={runsText(v)}
+              >
+                {label(v, i)}
+              </button>
+            ))
+          ) : (
+            <select value={picked} onChange={(e) => setPicked(Number(e.target.value))}>
+              {versions.map((v, i) => (
+                <option key={v.qv} value={i}>
+                  {label(v, i)}
+                </option>
+              ))}
+            </select>
+          )}
+          <span className="muted">Split by “version” to compare their distributions.</span>
+        </div>
+      )}
+      <p className="muted small">
+        {current.n} answers · {runsText(current)}
+      </p>
+      <pre>{JSON.stringify(definitions[current.qv], null, 2)}</pre>
+    </details>
   );
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { answersOf, isDecisionRecord, isLabelLine, labelKey, readAnswer, toRows, type DecisionRecord } from '../src/format.ts';
+import { answersOf, isDecisionRecord, isLabelLine, labelKey, questionVersion, readAnswer, toRows, type DecisionRecord } from '../src/format.ts';
 
 test('readAnswer reads the wire shapes', () => {
   assert.deepEqual(readAnswer({ type: 'noul', noul: 0.2 }), { type: 'noul', p: 0.2 });
@@ -54,4 +54,23 @@ test('toRows joins labels; record labels win', () => {
   assert.equal(team.p, 0.6);
   assert.equal(team.expected, 'y');
   assert.equal(team.y, false);
+});
+
+test('question versions ignore key order and collect definitions', () => {
+  const a = { type: 'noul', text: 'Is it urgent?' };
+  const b = { text: 'Is it urgent?', type: 'noul' };
+  assert.equal(questionVersion(a), questionVersion(b));
+  assert.notEqual(questionVersion(a), questionVersion({ ...a, text: 'Is it urgent now?' }));
+  const definitions = new Map<string, unknown>();
+  const rows = toRows(
+    [
+      { id: 'r1', run: 'x', request: { questions: { urgent: a } }, answers: { urgent: { type: 'noul', p: 0.7 } } },
+      { id: 'r2', run: 'x', answers: { urgent: { type: 'noul', p: 0.2 } } },
+    ],
+    new Map(),
+    definitions,
+  );
+  assert.equal(rows[0].qv, questionVersion(a));
+  assert.equal(rows[1].qv, undefined);
+  assert.deepEqual(definitions.get(rows[0].qv!), a);
 });

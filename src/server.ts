@@ -30,7 +30,12 @@ function rowsPayload(data: Loaded) {
   let hit = rowsCache.get(data);
   if (!hit) {
     const raw = Buffer.from(
-      JSON.stringify({ rows: data.rows, skipped: data.skipped.slice(0, 50), skippedCount: data.skipped.length }),
+      JSON.stringify({
+        rows: data.rows,
+        definitions: Object.fromEntries(data.definitions),
+        skipped: data.skipped.slice(0, 50),
+        skippedCount: data.skipped.length,
+      }),
     );
     hit = { raw, gzipped: gzipSync(raw) };
     rowsCache.set(data, hit);

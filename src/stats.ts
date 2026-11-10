@@ -84,12 +84,13 @@ export function usualThreshold(rows: Row[]) {
   return best;
 }
 
-/** Feature value of a row for splitting: "run", "model", "backend", or "tag:<name>". */
+/** Feature value of a row for splitting: "run", "model", "backend", "question", "version" (question as sent), or "tag:<name>". */
 export function featureOf(row: Row, feature: string): string {
   if (feature === 'run') return row.run;
   if (feature === 'model') return row.model ?? '(none)';
   if (feature === 'backend') return row.backend ?? '(none)';
   if (feature === 'question') return row.question;
+  if (feature === 'version') return row.qv ?? '(no request)';
   if (feature.startsWith('tag:')) {
     const v = row.tags[feature.slice(4)];
     return v === undefined ? '(none)' : String(v);

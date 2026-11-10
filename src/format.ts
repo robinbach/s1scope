@@ -76,6 +76,8 @@ export interface Row {
   /** noul: the label as a boolean. choice: whether the chosen option matches the label. */
   y?: boolean;
   threshold?: number;
+  /** Version of the question as sent: a short hash of its definition. Missing when the record has no request. */
+  qv?: string;
   model?: string;
   backend?: string;
   ms?: number;
@@ -142,6 +144,28 @@ export function isDecisionRecord(x: unknown): x is DecisionRecord {
   return isObject(x) && typeof x.run === 'string' && ('answers' in x || 'response' in x || 'error' in x);
 }
 
+/** JSON with object keys sorted, so equal definitions give equal text. */
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (isObject(value))
+    return `{${Object.keys(value)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`)
+      .join(',')}}`;
+  return JSON.stringify(value) ?? 'null';
+}
+
+/** Short, stable version id of a question definition (FNV-1a, 32 bit, hex). */
+export function questionVersion(definition: unknown): string {
+  const text = canonicalJson(definition);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
 export const labelKey = (item: string, question: string) => `${item}\u0000${question}`;
 
 /** Expected label as a yes/no, or undefined when it can't be read as one. */
@@ -154,12 +178,23 @@ function asBool(expected: Expected): boolean | undefined {
   return undefined;
 }
 
-/** Flattens records into one row per question, joining labels (record labels win over label lines). */
-export function toRows(records: DecisionRecord[], labels: Map<string, Expected> = new Map()): Row[] {
+/**
+ * Flattens records into one row per question, joining labels (record labels win over label lines).
+ * When `definitions` is given, it collects each question version's definition (version id → definition).
+ */
+export function toRows(
+  records: DecisionRecord[],
+  labels: Map<string, Expected> = new Map(),
+  definitions?: Map<string, unknown>,
+): Row[] {
   const rows: Row[] = [];
   for (const record of records) {
     const model = modelOf(record);
+    const sent = isObject(record.request?.questions) ? record.request.questions : undefined;
     for (const [question, answer] of Object.entries(answersOf(record))) {
+      const definition = sent?.[question];
+      const qv = definition === undefined ? undefined : questionVersion(definition);
+      if (qv && definitions && !definitions.has(qv)) definitions.set(qv, definition);
       const expected =
         record.labels?.[question] ?? (record.item !== undefined ? labels.get(labelKey(record.item, question)) : undefined);
       const row: Row = {
@@ -170,6 +205,7 @@ export function toRows(records: DecisionRecord[], labels: Map<string, Expected> 
         type: answer.type,
         expected,
         threshold: record.thresholds?.[question],
+        qv,
         model,
         backend: record.backend,
         ms: record.ms,

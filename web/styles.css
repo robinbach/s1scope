@@ -467,3 +467,59 @@ pre {
   padding: 4px 14px;
   cursor: pointer;
 }
+
+.definition {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.definition summary,
+.raw summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.definition[open] summary {
+  margin-bottom: 8px;
+}
+.definition pre {
+  max-height: 420px;
+}
+.versions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.versions select {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-1);
+  max-width: 100%;
+}
+.chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  padding: 2px 10px;
+  cursor: pointer;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+}
+.chip.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--accent);
+}
+.small {
+  font-size: 12px;
+  margin: 0 0 6px;
+}
+.raw {
+  margin-top: 6px;
+}
+.raw[open] summary {
+  margin-bottom: 6px;
+}
