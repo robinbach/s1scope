@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { load } from '../src/load.ts';
 import { recordingFetch } from '../src/record.ts';
 import { handler } from '../src/server.ts';
+import { MemoryStore } from '../src/store.ts';
 
 test('load reads records and labels from a folder, skipping junk', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 's1scope-'));
@@ -59,11 +60,10 @@ test('recordingFetch logs System One calls and passes others through', async () 
   assert.ok(!JSON.stringify(rec).includes('secret'));
 });
 
-test('server answers /api/rows and /api/record', async () => {
+test('server answers /api/overview, /api/rows and /api/record', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 's1scope-'));
   await writeFile(path.join(dir, 'a.jsonl'), JSON.stringify({ id: 'x1', run: 'r', answers: { q: { type: 'noul', p: 0.2 } } }) + '\n');
-  const data = await load([dir]);
-  const handle = handler(async () => data);
+  const handle = handler(await MemoryStore.open([dir]));
   const server = createServer(async (req, res) => {
     if (!(await handle(req, res))) {
       res.writeHead(404);
@@ -73,8 +73,14 @@ test('server answers /api/rows and /api/record', async () => {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as { port: number };
   try {
-    const rows = await (await fetch(`http://127.0.0.1:${port}/api/rows`)).json();
-    assert.equal(rows.rows.length, 1);
+    const base = `http://127.0.0.1:${port}`;
+    const overview = await (await fetch(`${base}/api/overview`)).json();
+    assert.deepEqual(overview.counts, [{ run: 'r', question: 'q', type: 'noul', n: 1, labeled: 0 }]);
+    const post = (body: unknown) => fetch(`${base}/api/rows`, { method: 'POST', body: JSON.stringify(body) });
+    assert.equal((await (await post({ questions: ['q'] })).json()).rows.length, 1);
+    assert.equal((await (await post({ questions: ['q'], runs: ['other'] })).json()).rows.length, 0);
+    assert.equal((await post({ questions: 'q' })).status, 400);
+    assert.equal((await fetch(`${base}/api/rows`)).status, 405);
     const record = await (await fetch(`http://127.0.0.1:${port}/api/record?id=x1`)).json();
     assert.equal(record.run, 'r');
     assert.equal((await fetch(`http://127.0.0.1:${port}/api/record?id=nope`)).status, 404);

@@ -5,3 +5,4 @@ private/
 .env
 *.log
 examples/demo/
+.s1scope/

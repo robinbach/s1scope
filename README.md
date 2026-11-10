@@ -47,6 +47,11 @@ node dist/src/cli.js view examples/demo
 
 Development, with hot reload: `S1SCOPE_DATA=examples/demo npm run dev`.
 
+The viewer keeps an index of the logs in a DuckDB file, `.s1scope/index.duckdb` in the working directory
+(`--db <file>` to put it elsewhere). The first start reads every file; later starts read only files that are new
+or changed, and the page fetches the answers to one question at a time. The JSONL files stay the source: the
+index can be deleted at any time. `--memory` skips the index and holds everything in memory.
+
 ## Logging calls
 
 The format is JSONL, one call per line. See [docs/format.md](docs/format.md).

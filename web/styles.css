@@ -591,3 +591,23 @@ pre {
   text-decoration: underline dotted;
   text-underline-offset: 3px;
 }
+
+/* Thin bar at the top of the main pane while answers load. */
+.loading-bar {
+  position: sticky;
+  top: 0;
+  height: 2px;
+  margin-bottom: -2px;
+  background: linear-gradient(90deg, transparent, var(--series-yes), transparent);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: loading-slide 1s linear infinite;
+  z-index: 2;
+}
+@keyframes loading-slide {
+  from { background-position: -50% 0; }
+  to { background-position: 150% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-bar { animation: none; background: var(--series-yes); opacity: 0.5; }
+}

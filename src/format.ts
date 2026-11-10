@@ -178,6 +178,53 @@ function asBool(expected: Expected): boolean | undefined {
   return undefined;
 }
 
+/** Sets a row's expected answer and derives `y` from it (in place). */
+export function withExpected(row: Row, expected: Expected | undefined): Row {
+  row.expected = expected;
+  delete row.y;
+  if (expected === undefined) return row;
+  if (row.type === 'noul') {
+    const y = asBool(expected);
+    if (y !== undefined) row.y = y;
+  } else if (row.type === 'choice') row.y = String(expected) === row.choice;
+  return row;
+}
+
+/**
+ * One row per answered question of one record, with the record's own labels only.
+ * When `definitions` is given, it collects each question version's definition (version id → definition).
+ */
+export function answerRows(record: DecisionRecord, definitions?: Map<string, unknown>): Row[] {
+  const rows: Row[] = [];
+  const model = modelOf(record);
+  const sent = isObject(record.request?.questions) ? record.request.questions : undefined;
+  for (const [question, answer] of Object.entries(answersOf(record))) {
+    const definition = sent?.[question];
+    const qv = definition === undefined ? undefined : questionVersion(definition);
+    if (qv && definitions && !definitions.has(qv)) definitions.set(qv, definition);
+    const row: Row = {
+      id: record.id!,
+      run: record.run,
+      item: record.item,
+      question,
+      type: answer.type,
+      threshold: record.thresholds?.[question],
+      qv,
+      model,
+      backend: record.backend,
+      ms: record.ms,
+      tags: record.tags ?? {},
+    };
+    if (answer.type === 'noul') row.p = answer.p;
+    else if (answer.type === 'choice') {
+      row.p = answer.confidence;
+      row.choice = answer.choice;
+    } else row.value = answer.value;
+    rows.push(withExpected(row, record.labels?.[question]));
+  }
+  return rows;
+}
+
 /**
  * Flattens records into one row per question, joining labels (record labels win over label lines).
  * When `definitions` is given, it collects each question version's definition (version id → definition).
@@ -188,41 +235,10 @@ export function toRows(
   definitions?: Map<string, unknown>,
 ): Row[] {
   const rows: Row[] = [];
-  for (const record of records) {
-    const model = modelOf(record);
-    const sent = isObject(record.request?.questions) ? record.request.questions : undefined;
-    for (const [question, answer] of Object.entries(answersOf(record))) {
-      const definition = sent?.[question];
-      const qv = definition === undefined ? undefined : questionVersion(definition);
-      if (qv && definitions && !definitions.has(qv)) definitions.set(qv, definition);
-      const expected =
-        record.labels?.[question] ?? (record.item !== undefined ? labels.get(labelKey(record.item, question)) : undefined);
-      const row: Row = {
-        id: record.id!,
-        run: record.run,
-        item: record.item,
-        question,
-        type: answer.type,
-        expected,
-        threshold: record.thresholds?.[question],
-        qv,
-        model,
-        backend: record.backend,
-        ms: record.ms,
-        tags: record.tags ?? {},
-      };
-      if (answer.type === 'noul') {
-        row.p = answer.p;
-        if (expected !== undefined) row.y = asBool(expected);
-      } else if (answer.type === 'choice') {
-        row.p = answer.confidence;
-        row.choice = answer.choice;
-        if (expected !== undefined) row.y = String(expected) === answer.choice;
-      } else {
-        row.value = answer.value;
-      }
+  for (const record of records)
+    for (const row of answerRows(record, definitions)) {
+      if (row.expected === undefined && row.item !== undefined) withExpected(row, labels.get(labelKey(row.item, row.question)));
       rows.push(row);
     }
-  }
   return rows;
 }

@@ -1,15 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { Overview, RowQuery, RowResult } from '../src/api.ts';
 import type { DecisionRecord, Row } from '../src/format.ts';
 import { brier, confusion, ece, featureOf, labeled, usualThreshold } from '../src/stats.ts';
 import { CompareView } from './Compare.tsx';
 import { Histogram, Reliability, Sweep, useColors } from './charts.tsx';
-
-interface Data {
-  rows: Row[];
-  /** Question definitions as sent, by version id. */
-  definitions: Record<string, unknown>;
-  skippedCount: number;
-}
 
 const fmt = (x: number | undefined, digits = 2) => (x === undefined ? '–' : x.toFixed(digits));
 const pct = (x: number | undefined) => (x === undefined ? '–' : `${(x * 100).toFixed(1)}%`);
@@ -29,8 +23,45 @@ function matcher(filter: string) {
   return (q: string) => q.toLowerCase().includes(f.toLowerCase());
 }
 
+/**
+ * Fetches the answers to the given questions in the given runs. Narrowing the runs filters the
+ * answers already loaded; anything else asks the server. While a request is on its way the previous
+ * answers to the same questions stay on screen; a newer request cancels an older one.
+ */
+function useRows(questions: string[], runs: Set<string> | undefined, runCount: number) {
+  type Loaded = { key: string; questions: string; runs?: Set<string>; result?: RowResult; error?: string };
+  const [state, setState] = useState<Loaded>({ key: '', questions: '' });
+  // Send no run list when every run is selected: it is the common case and keeps the request small.
+  const all = runs?.size === runCount;
+  const query: RowQuery | undefined = runs && questions.length ? { questions, ...(all ? {} : { runs: [...runs].sort() }) } : undefined;
+  const key = query ? JSON.stringify(query) : '';
+  const qkey = JSON.stringify(questions);
+  const covered =
+    !!query && !!state.result && state.questions === qkey && (!state.runs || (!all && query.runs!.every((r) => state.runs!.has(r))));
+  useEffect(() => {
+    if (!query || covered) return;
+    const abort = new AbortController();
+    const loaded = { key, questions: qkey, runs: query.runs && new Set(query.runs) };
+    fetch('/api/rows', { method: 'POST', body: key, headers: { 'Content-Type': 'application/json' }, signal: abort.signal })
+      .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(new Error(e.error ?? `HTTP ${r.status}`)))))
+      .then((result: RowResult) => setState({ ...loaded, result }))
+      .catch((e: Error) => abort.signal.aborted || setState({ ...loaded, error: e.message }));
+    return () => abort.abort();
+  }, [key, covered]);
+  const narrowed = useMemo(() => {
+    if (!covered || !state.result || state.key === key) return state.result;
+    const keep = new Set(query!.runs ?? []);
+    return { ...state.result, rows: state.result.rows.filter((r) => all || keep.has(r.run)) };
+  }, [covered, state, key]);
+  if (!query) return { result: undefined, loading: false, error: undefined };
+  if (covered) return { result: narrowed, loading: false, error: undefined };
+  const stale = state.key !== key;
+  const result = !stale || state.questions === qkey ? state.result : undefined;
+  return { result, loading: stale, error: stale ? undefined : state.error };
+}
+
 export function App() {
-  const [data, setData] = useState<Data>();
+  const [data, setData] = useState<Overview>();
   const [error, setError] = useState<string>();
   const [runs, setRuns] = useState<Set<string>>();
   const [filter, setFilter] = useState(() => new URLSearchParams(location.hash.slice(1)).get('f') ?? '');
@@ -38,11 +69,11 @@ export function App() {
   const [question, setQuestion] = useState(() => new URLSearchParams(location.hash.slice(1)).get('q') ?? '');
 
   useEffect(() => {
-    fetch('/api/rows')
+    fetch('/api/overview')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: Data) => {
+      .then((d: Overview) => {
         setData(d);
-        setRuns(new Set(d.rows.map((r) => r.run)));
+        setRuns(new Set(d.runs.map((r) => r.run)));
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -66,31 +97,25 @@ export function App() {
     history.replaceState(null, '', `#${p}`);
   }, [question, filter, pool]);
 
-  const runList = useMemo(() => {
-    const m = new Map<string, RunInfo>();
-    for (const r of data?.rows ?? []) {
-      const e = m.get(r.run) ?? { n: 0, models: new Set() };
-      e.n++;
-      if (r.model) e.models.add(r.model);
-      m.set(r.run, e);
-    }
-    return [...m].sort(([a], [b]) => a.localeCompare(b));
-  }, [data]);
-
-  const inRuns = useMemo(() => (data?.rows ?? []).filter((r) => runs?.has(r.run)), [data, runs]);
+  const runList = useMemo(
+    (): [string, RunInfo][] =>
+      (data?.runs ?? []).map((r) => [r.run, { n: r.n, models: new Set(r.models) }] as [string, RunInfo]).sort(([a], [b]) => a.localeCompare(b)),
+    [data],
+  );
   const match = useMemo(() => matcher(filter), [filter]);
 
+  // Counted from the per-run totals, so changing runs needs no request.
   const questions = useMemo(() => {
     const m = new Map<string, { n: number; labeled: number; type: Row['type'] }>();
-    for (const r of inRuns) {
-      if (!match(r.question)) continue;
-      const e = m.get(r.question) ?? { n: 0, labeled: 0, type: r.type };
-      e.n++;
-      if (r.y !== undefined) e.labeled++;
-      m.set(r.question, e);
+    for (const c of data?.counts ?? []) {
+      if (!runs?.has(c.run) || !match(c.question)) continue;
+      const e = m.get(c.question) ?? { n: 0, labeled: 0, type: c.type };
+      e.n += c.n;
+      e.labeled += c.labeled;
+      m.set(c.question, e);
     }
     return [...m].sort((a, b) => b[1].labeled - a[1].labeled || b[1].n - a[1].n || a[0].localeCompare(b[0]));
-  }, [inRuns, match]);
+  }, [data, runs, match]);
 
   // Pooled view: every question that matches the filter, of the most common type among them.
   const pooledType = useMemo(() => {
@@ -99,21 +124,28 @@ export function App() {
     return [...count].sort((a, b) => b[1] - a[1])[0]?.[0] as Row['type'] | undefined;
   }, [questions]);
 
-  const selected = useMemo(() => {
-    if (pool && filter.trim()) return inRuns.filter((r) => match(r.question) && r.type === pooledType);
-    return inRuns.filter((r) => r.question === question);
-  }, [inRuns, pool, filter, match, pooledType, question]);
+  const pooled = pool && !!filter.trim();
+  const wanted = useMemo(
+    () => (pooled ? questions.filter(([, q]) => q.type === pooledType).map(([q]) => q) : question ? [question] : []),
+    [pooled, questions, pooledType, question],
+  );
+  const { result, loading, error: rowsError } = useRows(wanted, runs, runList.length);
+  // Pooled rows keep only the common type, as before.
+  const selected = useMemo(
+    () => (pooled ? (result?.rows ?? []).filter((r) => r.type === pooledType) : (result?.rows ?? [])),
+    [result, pooled, pooledType],
+  );
 
   if (error) return <div className="empty">Could not load data: {error}</div>;
   if (!data || !runs) return <div className="empty">Loading…</div>;
-  if (!data.rows.length)
+  if (!data.answers)
     return (
       <div className="empty">
         No decision records found. Start the viewer with <code>s1scope view &lt;folder-of-jsonl&gt;</code>.
       </div>
     );
 
-  const title = pool && filter.trim() ? `${questions.filter(([, q]) => q.type === pooledType).length} questions matching ${filter}` : question;
+  const title = pooled ? `${wanted.length} questions matching ${filter}` : question;
 
   return (
     <div className="layout">
@@ -121,7 +153,7 @@ export function App() {
         <header className="brand">
           <h1>s1scope</h1>
           <span className="muted">
-            {data.rows.length.toLocaleString()} answers{data.skippedCount ? ` · ${data.skippedCount} lines skipped` : ''}
+            {data.answers.toLocaleString()} answers{data.skippedCount ? ` · ${data.skippedCount} lines skipped` : ''}
           </span>
         </header>
         <RunPicker runList={runList} runs={runs} setRuns={setRuns} />
@@ -166,16 +198,17 @@ export function App() {
         </section>
       </aside>
       <main>
-        {selected.length ? (
-          <QuestionView
-            key={title}
-            title={title}
-            rows={selected}
-            pooled={pool && !!filter.trim()}
-            definitions={data.definitions ?? {}}
-          />
+        {rowsError ? (
+          <div className="empty">Could not load answers: {rowsError}</div>
+        ) : selected.length ? (
+          <>
+            {loading && <div className="loading-bar" aria-label="Loading" />}
+            <QuestionView key={title} title={title} rows={selected} pooled={pooled} definitions={result?.definitions ?? {}} />
+          </>
+        ) : loading ? (
+          <div className="empty">Loading answers…</div>
         ) : (
-          <div className="empty">Pick a question on the left.</div>
+          <div className="empty">{wanted.length ? 'No answers to this question in the selected runs.' : 'Pick a question on the left.'}</div>
         )}
       </main>
     </div>
