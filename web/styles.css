@@ -523,3 +523,56 @@ pre {
 .raw[open] summary {
   margin-bottom: 6px;
 }
+
+.runs {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 0 1 auto;
+  max-height: 42vh;
+}
+.runs h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.runs h2 .link {
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.runs h2 .muted:first-of-type {
+  margin-right: auto;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+.runlist {
+  overflow-y: auto;
+  min-height: 0;
+  margin: 0 -6px;
+  padding: 0 6px;
+}
+.fold {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.caret {
+  width: 12px;
+  color: var(--text-muted);
+}
+.check.sub {
+  padding-left: 22px;
+}
+@media (max-width: 760px) {
+  .runs {
+    max-height: 300px;
+  }
+}

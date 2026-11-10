@@ -66,7 +66,7 @@ export function App() {
   }, [question, filter, pool]);
 
   const runList = useMemo(() => {
-    const m = new Map<string, { n: number; models: Set<string> }>();
+    const m = new Map<string, RunInfo>();
     for (const r of data?.rows ?? []) {
       const e = m.get(r.run) ?? { n: 0, models: new Set() };
       e.n++;
@@ -123,26 +123,7 @@ export function App() {
             {data.rows.length.toLocaleString()} answers{data.skippedCount ? ` · ${data.skippedCount} lines skipped` : ''}
           </span>
         </header>
-        <section>
-          <h2>Runs</h2>
-          {runList.map(([run, info]) => (
-            <label key={run} className="check">
-              <input
-                type="checkbox"
-                checked={runs.has(run)}
-                onChange={(e) => {
-                  const next = new Set(runs);
-                  e.target.checked ? next.add(run) : next.delete(run);
-                  setRuns(next);
-                }}
-              />
-              <span className="grow" title={run}>
-                {run}
-              </span>
-              <span className="muted num">{info.n.toLocaleString()}</span>
-            </label>
-          ))}
-        </section>
+        <RunPicker runList={runList} runs={runs} setRuns={setRuns} />
         <section className="questions">
           <h2>Questions</h2>
           <input
@@ -609,5 +590,113 @@ function Definition({ rows, definitions, pooled }: { rows: Row[]; definitions: R
       </p>
       <pre>{JSON.stringify(definitions[current.qv], null, 2)}</pre>
     </details>
+  );
+}
+
+type RunInfo = { n: number; models: Set<string> };
+
+/** Runs grouped by the first word of their name ("matrix …", "playtest …"); groups with many runs start folded. */
+function RunPicker({
+  runList,
+  runs,
+  setRuns,
+}: {
+  runList: [string, RunInfo][];
+  runs: Set<string>;
+  setRuns: (s: Set<string>) => void;
+}) {
+  const groups = useMemo(() => {
+    const m = new Map<string, [string, RunInfo][]>();
+    for (const entry of runList) {
+      const key = entry[0].split(' ')[0];
+      m.set(key, [...(m.get(key) ?? []), entry]);
+    }
+    return [...m];
+  }, [runList]);
+  const [open, setOpen] = useState<Set<string>>(() => new Set(groups.filter(([, list]) => list.length <= 5).map(([g]) => g)));
+
+  const toggle = (names: string[], on: boolean) => {
+    const next = new Set(runs);
+    for (const n of names) on ? next.add(n) : next.delete(n);
+    setRuns(next);
+  };
+
+  return (
+    <section className="runs">
+      <h2>
+        Runs
+        <span className="muted">
+          {runs.size}/{runList.length}
+        </span>
+        <button className="link" onClick={() => setRuns(new Set(runList.map(([r]) => r)))}>
+          all
+        </button>
+        <button className="link" onClick={() => setRuns(new Set())}>
+          none
+        </button>
+      </h2>
+      <div className="runlist">
+        {groups.map(([group, list]) => {
+          const names = list.map(([r]) => r);
+          const on = names.filter((r) => runs.has(r)).length;
+          const total = list.reduce((s, [, i]) => s + i.n, 0);
+          const isOpen = open.has(group);
+          if (list.length === 1) {
+            const [run, info] = list[0];
+            return (
+              <label key={group} className="check">
+                <input type="checkbox" checked={runs.has(run)} onChange={(e) => toggle([run], e.target.checked)} />
+                <span className="grow" title={run}>
+                  {run}
+                </span>
+                <span className="muted num">{info.n.toLocaleString()}</span>
+              </label>
+            );
+          }
+          return (
+            <div key={group} className="group">
+              <div className="check grouphead">
+                <input
+                  type="checkbox"
+                  checked={on === names.length}
+                  ref={(el) => {
+                    if (el) el.indeterminate = on > 0 && on < names.length;
+                  }}
+                  onChange={(e) => toggle(names, e.target.checked)}
+                  aria-label={`all ${group} runs`}
+                />
+                <button
+                  className="fold grow"
+                  aria-expanded={isOpen}
+                  onClick={() => {
+                    const next = new Set(open);
+                    isOpen ? next.delete(group) : next.add(group);
+                    setOpen(next);
+                  }}
+                >
+                  <span className="caret">{isOpen ? '▾' : '▸'}</span>
+                  {group}
+                  <span className="muted">
+                    {' '}
+                    {on === names.length ? names.length : `${on}/${names.length}`} runs
+                  </span>
+                </button>
+                <span className="muted num">{total.toLocaleString()}</span>
+              </div>
+              {isOpen &&
+                list.map(([run, info]) => (
+                  <label key={run} className="check sub">
+                    <input type="checkbox" checked={runs.has(run)} onChange={(e) => toggle([run], e.target.checked)} />
+                    <span className="grow" title={run}>
+                      {run.slice(group.length).trim() || run}
+                    </span>
+                    <span className="muted num">{info.n.toLocaleString()}</span>
+                  </label>
+                ))}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
