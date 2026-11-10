@@ -1,0 +1,492 @@
+import { useEffect, useMemo, useState } from 'react';
+import type { DecisionRecord, Row } from '../src/format.ts';
+import { brier, confusion, ece, featureOf, labeled, usualThreshold } from '../src/stats.ts';
+import { Histogram, Reliability, Sweep, useColors } from './charts.tsx';
+
+interface Data {
+  rows: Row[];
+  skippedCount: number;
+}
+
+const fmt = (x: number | undefined, digits = 2) => (x === undefined ? '–' : x.toFixed(digits));
+const pct = (x: number | undefined) => (x === undefined ? '–' : `${(x * 100).toFixed(1)}%`);
+
+/** Question filter: plain text matches as a substring; /…/ is a regular expression. */
+function matcher(filter: string) {
+  const f = filter.trim();
+  if (!f) return () => true;
+  if (f.length > 2 && f.startsWith('/') && f.endsWith('/')) {
+    try {
+      const re = new RegExp(f.slice(1, -1));
+      return (q: string) => re.test(q);
+    } catch {
+      return () => false;
+    }
+  }
+  return (q: string) => q.toLowerCase().includes(f.toLowerCase());
+}
+
+export function App() {
+  const [data, setData] = useState<Data>();
+  const [error, setError] = useState<string>();
+  const [runs, setRuns] = useState<Set<string>>();
+  const [filter, setFilter] = useState(() => new URLSearchParams(location.hash.slice(1)).get('f') ?? '');
+  const [pool, setPool] = useState(() => new URLSearchParams(location.hash.slice(1)).get('pool') === '1');
+  const [question, setQuestion] = useState(() => new URLSearchParams(location.hash.slice(1)).get('q') ?? '');
+
+  useEffect(() => {
+    fetch('/api/rows')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d: Data) => {
+        setData(d);
+        setRuns(new Set(d.rows.map((r) => r.run)));
+      })
+      .catch((e: Error) => setError(e.message));
+  }, []);
+
+  useEffect(() => {
+    const onHash = () => {
+      const h = new URLSearchParams(location.hash.slice(1));
+      setQuestion(h.get('q') ?? '');
+      setFilter(h.get('f') ?? '');
+      setPool(h.get('pool') === '1');
+    };
+    addEventListener('hashchange', onHash);
+    return () => removeEventListener('hashchange', onHash);
+  }, []);
+
+  useEffect(() => {
+    const p = new URLSearchParams();
+    if (question) p.set('q', question);
+    if (filter) p.set('f', filter);
+    if (pool) p.set('pool', '1');
+    history.replaceState(null, '', `#${p}`);
+  }, [question, filter, pool]);
+
+  const runList = useMemo(() => {
+    const m = new Map<string, { n: number; models: Set<string> }>();
+    for (const r of data?.rows ?? []) {
+      const e = m.get(r.run) ?? { n: 0, models: new Set() };
+      e.n++;
+      if (r.model) e.models.add(r.model);
+      m.set(r.run, e);
+    }
+    return [...m].sort(([a], [b]) => a.localeCompare(b));
+  }, [data]);
+
+  const inRuns = useMemo(() => (data?.rows ?? []).filter((r) => runs?.has(r.run)), [data, runs]);
+  const match = useMemo(() => matcher(filter), [filter]);
+
+  const questions = useMemo(() => {
+    const m = new Map<string, { n: number; labeled: number; type: Row['type'] }>();
+    for (const r of inRuns) {
+      if (!match(r.question)) continue;
+      const e = m.get(r.question) ?? { n: 0, labeled: 0, type: r.type };
+      e.n++;
+      if (r.y !== undefined) e.labeled++;
+      m.set(r.question, e);
+    }
+    return [...m].sort((a, b) => b[1].labeled - a[1].labeled || b[1].n - a[1].n || a[0].localeCompare(b[0]));
+  }, [inRuns, match]);
+
+  // Pooled view: every question that matches the filter, of the most common type among them.
+  const pooledType = useMemo(() => {
+    const count = new Map<string, number>();
+    for (const [, q] of questions) count.set(q.type, (count.get(q.type) ?? 0) + q.n);
+    return [...count].sort((a, b) => b[1] - a[1])[0]?.[0] as Row['type'] | undefined;
+  }, [questions]);
+
+  const selected = useMemo(() => {
+    if (pool && filter.trim()) return inRuns.filter((r) => match(r.question) && r.type === pooledType);
+    return inRuns.filter((r) => r.question === question);
+  }, [inRuns, pool, filter, match, pooledType, question]);
+
+  if (error) return <div className="empty">Could not load data: {error}</div>;
+  if (!data || !runs) return <div className="empty">Loading…</div>;
+  if (!data.rows.length)
+    return (
+      <div className="empty">
+        No decision records found. Start the viewer with <code>s1scope view &lt;folder-of-jsonl&gt;</code>.
+      </div>
+    );
+
+  const title = pool && filter.trim() ? `${questions.filter(([, q]) => q.type === pooledType).length} questions matching ${filter}` : question;
+
+  return (
+    <div className="layout">
+      <aside>
+        <header className="brand">
+          <h1>s1scope</h1>
+          <span className="muted">
+            {data.rows.length.toLocaleString()} answers{data.skippedCount ? ` · ${data.skippedCount} lines skipped` : ''}
+          </span>
+        </header>
+        <section>
+          <h2>Runs</h2>
+          {runList.map(([run, info]) => (
+            <label key={run} className="check">
+              <input
+                type="checkbox"
+                checked={runs.has(run)}
+                onChange={(e) => {
+                  const next = new Set(runs);
+                  e.target.checked ? next.add(run) : next.delete(run);
+                  setRuns(next);
+                }}
+              />
+              <span className="grow" title={run}>
+                {run}
+              </span>
+              <span className="muted num">{info.n.toLocaleString()}</span>
+            </label>
+          ))}
+        </section>
+        <section className="questions">
+          <h2>Questions</h2>
+          <input
+            className="filter"
+            placeholder="filter, or /regex/"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+          {filter.trim() && (
+            <label className="check">
+              <input type="checkbox" checked={pool} onChange={(e) => setPool(e.target.checked)} />
+              <span>Pool all matching ({pooledType ?? '–'})</span>
+            </label>
+          )}
+          <div className="qlist" role="listbox">
+            {questions.map(([q, info]) => (
+              <button
+                key={q}
+                role="option"
+                aria-selected={!pool && q === question}
+                className={!pool && q === question ? 'q selected' : 'q'}
+                onClick={() => {
+                  setPool(false);
+                  setQuestion(q);
+                }}
+              >
+                <span className="grow mono" title={q}>
+                  {q}
+                </span>
+                <span className="badge">{info.type}</span>
+                <span className="muted num" title="answers · labeled">
+                  {info.n}
+                  {info.labeled ? ` · ${info.labeled}` : ''}
+                </span>
+              </button>
+            ))}
+            {!questions.length && <p className="muted">No question matches.</p>}
+          </div>
+        </section>
+      </aside>
+      <main>
+        {selected.length ? (
+          <QuestionView key={title} title={title} rows={selected} pooled={pool && !!filter.trim()} />
+        ) : (
+          <div className="empty">Pick a question on the left.</div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function QuestionView({ title, rows, pooled }: { title: string; rows: Row[]; pooled: boolean }) {
+  const type = rows[0].type;
+  const usual = usualThreshold(rows);
+  const [t, setT] = useState(usual ?? 0.5);
+  const [split, setSplit] = useState('none');
+  const [yScale, setYScale] = useState<'linear' | 'sqrt'>('linear');
+  const [tab, setTab] = useState<'errors' | 'near' | 'all'>('errors');
+  const [open, setOpen] = useState<Row>();
+  const [shown, setShown] = useState(50);
+  const colors = useColors();
+
+  const features = useMemo(() => {
+    const tags = new Set<string>();
+    for (const r of rows) for (const k of Object.keys(r.tags)) tags.add(k);
+    const base = ['none', 'run', 'model', 'backend', 'question'];
+    return [...base, ...[...tags].sort().map((k) => `tag:${k}`)];
+  }, [rows]);
+
+  const points = labeled(rows);
+  const c = confusion(points, t);
+  const words =
+    type === 'noul'
+      ? { yes: 'expected yes', no: 'expected no', fp: 'False accept', fn: 'False reject', fpHint: 'expected no, p ≥ t', fnHint: 'expected yes, p < t' }
+      : { yes: 'right', no: 'wrong', fp: 'Wrong but trusted', fn: 'Right but not trusted', fpHint: 'wrong choice, confidence ≥ t', fnHint: 'right choice, confidence < t' };
+
+  const caseRows = useMemo(() => {
+    const withP = rows.filter((r) => r.p !== undefined);
+    if (tab === 'errors')
+      return withP
+        .filter((r) => r.y !== undefined && (r.p! >= t) !== r.y)
+        .sort((a, b) => Math.abs(b.p! - t) - Math.abs(a.p! - t));
+    if (tab === 'near') return withP.filter((r) => Math.abs(r.p! - t) <= 0.1).sort((a, b) => Math.abs(a.p! - t) - Math.abs(b.p! - t));
+    return withP;
+  }, [rows, tab, t]);
+
+  if (type === 'score')
+    return (
+      <div className="view">
+        <h2 className="mono">{title}</h2>
+        <p className="muted">
+          Score questions: {rows.length} answers. Distribution views for scores are not built yet.
+        </p>
+      </div>
+    );
+
+  return (
+    <div className="view">
+      <div className="viewhead">
+        <h2 className="mono" title={title}>
+          {title}
+        </h2>
+        <span className="muted">
+          {type === 'noul' ? 'yes/no · p = P(yes)' : 'choice · p = confidence of the chosen option'} · {rows.length} answers ·{' '}
+          {points.length} labeled
+        </span>
+      </div>
+
+      <div className="controls">
+        <label className="threshold">
+          <span>Threshold</span>
+          <input type="range" min={0} max={1} step={0.01} value={t} onChange={(e) => setT(Number(e.target.value))} />
+          <input
+            type="number"
+            min={0}
+            max={1}
+            step={0.01}
+            value={t}
+            onChange={(e) => setT(Math.min(1, Math.max(0, Number(e.target.value) || 0)))}
+          />
+          {usual !== undefined && (
+            <button className="link" onClick={() => setT(usual)} disabled={t === usual}>
+              app threshold {usual}
+            </button>
+          )}
+        </label>
+        <label>
+          <span>Split by</span>
+          <select value={split} onChange={(e) => setSplit(e.target.value)}>
+            {features.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label title="A square-root scale makes small bars visible next to large ones">
+          <span>Bar height</span>
+          <select value={yScale} onChange={(e) => setYScale(e.target.value as 'linear' | 'sqrt')}>
+            <option value="linear">linear</option>
+            <option value="sqrt">square root</option>
+          </select>
+        </label>
+      </div>
+
+      {points.length > 0 ? (
+        <div className="tiles">
+          <Tile label={words.fp} value={String(c.fp)} hint={words.fpHint} tone="no" />
+          <Tile label={words.fn} value={String(c.fn)} hint={words.fnHint} tone="yes" />
+          {type === 'noul' ? (
+            <>
+              <Tile label="Precision" value={pct(c.precision)} hint="of p ≥ t, share expected yes" />
+              <Tile label="Recall" value={pct(c.recall)} hint="of expected yes, share with p ≥ t" />
+            </>
+          ) : (
+            <>
+              <Tile label="Trusted" value={pct(c.coverage)} hint="share with confidence ≥ t" />
+              <Tile label="Accuracy when trusted" value={pct(c.precision)} />
+            </>
+          )}
+          <Tile label="Brier" value={fmt(brier(points), 3)} hint="mean (p − y)², lower is better" />
+          <Tile label="ECE" value={fmt(ece(points), 3)} hint="10-bin expected calibration error" />
+        </div>
+      ) : (
+        <p className="muted note">No labels for this question: showing the distribution only. Add label lines to see errors and calibration.</p>
+      )}
+
+      <figure>
+        <figcaption>
+          Distribution of p{split !== 'none' ? `, by ${split}` : ''}
+        </figcaption>
+        <Histogram rows={rows} t={t} split={split} words={words} colors={colors} yScale={yScale} />
+      </figure>
+
+      {points.length > 0 && (
+        <div className="pair">
+          <figure>
+            <figcaption>Reliability: predicted p vs observed rate (dot size = answers)</figcaption>
+            <Reliability rows={rows} split={split} colors={colors} />
+          </figure>
+          <figure>
+            <figcaption>Threshold sweep: errors at every threshold</figcaption>
+            <Sweep rows={rows} t={t} split={split} words={words} colors={colors} />
+          </figure>
+        </div>
+      )}
+
+      <section className="cases">
+        <div className="tabs" role="tablist">
+          {(
+            [
+              ['errors', `Errors at ${t.toFixed(2)}`],
+              ['near', 'Near threshold (±0.10)'],
+              ['all', 'All'],
+            ] as const
+          ).map(([id, label]) => (
+            <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'tab active' : 'tab'} onClick={() => {
+                setTab(id);
+                setShown(50);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+          <span className="muted">
+            {caseRows.length} rows{caseRows.length > shown ? `, showing ${shown}` : ''}
+          </span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>run</th>
+              <th>item</th>
+              {pooled && split !== 'question' && <th>question</th>}
+              {split !== 'none' && split !== 'run' && <th>{split}</th>}
+              <th className="num">p</th>
+              {type === 'choice' && <th>choice</th>}
+              <th>expected</th>
+            </tr>
+          </thead>
+          <tbody>
+            {caseRows.slice(0, shown).map((r) => (
+              <tr key={`${r.id}/${r.question}`} onClick={() => setOpen(r)} className={open === r ? 'open' : ''}>
+                <td className="clip" title={r.run}>
+                  {r.run}
+                </td>
+                <td className="clip mono" title={r.item}>
+                  {r.item ?? r.id}
+                </td>
+                {pooled && split !== 'question' && <td className="mono">{r.question}</td>}
+                {split !== 'none' && split !== 'run' && <td className="clip">{featureOf(r, split)}</td>}
+                <td className="num">{fmt(r.p)}</td>
+                {type === 'choice' && <td className="mono">{r.choice}</td>}
+                <td>
+                  {r.expected === undefined ? (
+                    <span className="muted">–</span>
+                  ) : (
+                    <span className={r.y === undefined ? '' : (r.p! >= t) === r.y ? 'ok' : 'bad'}>{String(r.expected)}</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {caseRows.length > shown && (
+          <button className="more" onClick={() => setShown(shown + 200)}>
+            Show {Math.min(200, caseRows.length - shown)} more
+          </button>
+        )}
+      </section>
+      {open && <RecordPanel row={open} onClose={() => setOpen(undefined)} />}
+    </div>
+  );
+}
+
+function Tile({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: 'yes' | 'no' }) {
+  return (
+    <div className="tile" title={hint}>
+      <div className="tile-label">
+        {tone && <span className={`swatch ${tone}`} aria-hidden />}
+        {label}
+      </div>
+      <div className="tile-value">{value}</div>
+      {hint && <div className="tile-hint">{hint}</div>}
+    </div>
+  );
+}
+
+function RecordPanel({ row, onClose }: { row: Row; onClose: () => void }) {
+  const [record, setRecord] = useState<DecisionRecord>();
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    setRecord(undefined);
+    fetch(`/api/record?id=${encodeURIComponent(row.id)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setRecord)
+      .catch((e: Error) => setError(e.message));
+  }, [row.id]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    addEventListener('keydown', onKey);
+    return () => removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const response = record?.response as { answers?: Record<string, unknown> } | undefined;
+  const state = record?.request?.state ?? record?.request?.document;
+  return (
+    <div className="panel" role="dialog" aria-label="Call detail">
+      <div className="panelhead">
+        <h3 className="mono">{row.question}</h3>
+        <button className="close" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+      </div>
+      {error && <p className="bad">{error}</p>}
+      {!record && !error && <p className="muted">Loading…</p>}
+      {record && (
+        <>
+          <dl>
+            {(
+              [
+                ['run', record.run],
+                ['item', record.item],
+                ['model', record.model_resolved ?? row.model ?? record.model],
+                ['backend', record.backend],
+                ['time', record.ts],
+                ['latency', record.ms !== undefined ? `${record.ms} ms` : undefined],
+                ['status', record.status],
+                ['request id', record.request_id],
+                ['expected', row.expected === undefined ? undefined : String(row.expected)],
+                ['threshold', row.threshold],
+                ...Object.entries(record.tags ?? {}).map(([k, v]) => [`tag ${k}`, v]),
+              ] as [string, unknown][]
+            )
+              .filter(([, v]) => v !== undefined && v !== '')
+              .map(([k, v]) => (
+                <div key={k}>
+                  <dt>{k}</dt>
+                  <dd className="mono">{String(v)}</dd>
+                </div>
+              ))}
+          </dl>
+          <h4>Answer</h4>
+          <pre>{JSON.stringify(response?.answers?.[row.question] ?? record.answers?.[row.question], null, 2)}</pre>
+          {record.request?.questions?.[row.question] !== undefined && (
+            <>
+              <h4>Question as sent</h4>
+              <pre>{JSON.stringify(record.request.questions[row.question], null, 2)}</pre>
+            </>
+          )}
+          {state !== undefined && (
+            <>
+              <h4>State</h4>
+              <pre>{typeof state === 'string' ? state : JSON.stringify(state, null, 2)}</pre>
+            </>
+          )}
+          <h4>All answers in this call</h4>
+          <pre>{JSON.stringify(response?.answers ?? record.answers, null, 1)}</pre>
+          {record.error && (
+            <>
+              <h4>Error</h4>
+              <pre className="bad">{record.error}</pre>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

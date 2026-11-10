@@ -1,0 +1,7 @@
+node_modules/
+dist/
+data/
+private/
+.env
+*.log
+examples/demo/
