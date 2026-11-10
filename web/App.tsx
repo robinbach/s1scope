@@ -631,7 +631,9 @@ function RunPicker({
     const m = new Map<string, [string, RunInfo][]>();
     for (const entry of runList) {
       const key = entry[0].split(' ')[0];
-      m.set(key, [...(m.get(key) ?? []), entry]);
+      const list = m.get(key);
+      if (list) list.push(entry);
+      else m.set(key, [entry]);
     }
     return [...m];
   }, [runList]);

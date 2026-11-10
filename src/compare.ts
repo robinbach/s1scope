@@ -63,7 +63,9 @@ export function compare(rows: Row[], feature: string, a: string, b: string, t: n
     }
     const key = `${r.item}\u0000${r.question}`;
     const m = groups[which];
-    m.set(key, [...(m.get(key) ?? []), r]);
+    const list = m.get(key);
+    if (list) list.push(r);
+    else m.set(key, [r]);
   }
   const pairs: Pair[] = [];
   for (const [key, ra] of groups.a) {

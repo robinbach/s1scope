@@ -148,7 +148,12 @@ export function Reliability({ rows, split, colors }: { rows: Row[]; split: strin
   const data = useMemo(() => {
     const group = grouper(rows, split);
     const byGroup = new Map<string, Row[]>();
-    for (const r of rows) byGroup.set(group(r), [...(byGroup.get(group(r)) ?? []), r]);
+    for (const r of rows) {
+      const g = group(r);
+      const list = byGroup.get(g);
+      if (list) list.push(r);
+      else byGroup.set(g, [r]);
+    }
     return [...byGroup].flatMap(([g, rs]) => reliability(labeled(rs)).map((b) => ({ ...b, group: g })));
   }, [rows, split]);
   const groups = new Set(data.map((d) => d.group)).size;
@@ -188,7 +193,12 @@ export function Sweep({ rows, t, split, words, colors }: { rows: Row[]; t: numbe
   const data = useMemo(() => {
     const group = grouper(rows, split);
     const byGroup = new Map<string, Row[]>();
-    for (const r of rows) byGroup.set(group(r), [...(byGroup.get(group(r)) ?? []), r]);
+    for (const r of rows) {
+      const g = group(r);
+      const list = byGroup.get(g);
+      if (list) list.push(r);
+      else byGroup.set(g, [r]);
+    }
     return [...byGroup].flatMap(([g, rs]) =>
       sweep(labeled(rs)).flatMap((s) => [
         { t: s.t, n: s.fp, kind: words.fp, group: g },
