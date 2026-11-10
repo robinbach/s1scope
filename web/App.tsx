@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { DecisionRecord, Row } from '../src/format.ts';
 import { brier, confusion, ece, featureOf, labeled, usualThreshold } from '../src/stats.ts';
+import { CompareView } from './Compare.tsx';
 import { Histogram, Reliability, Sweep, useColors } from './charts.tsx';
 
 interface Data {
@@ -200,6 +201,7 @@ function QuestionView({
   const [tab, setTab] = useState<'errors' | 'near' | 'all'>('errors');
   const [open, setOpen] = useState<Row>();
   const [shown, setShown] = useState(50);
+  const [mode, setMode] = useState<'overview' | 'compare'>('overview');
   const colors = useColors();
 
   const features = useMemo(() => {
@@ -250,6 +252,19 @@ function QuestionView({
 
       <Definition rows={rows} definitions={definitions} pooled={pooled} />
 
+      <div className="modes" role="tablist">
+        {(
+          [
+            ['overview', 'Overview'],
+            ['compare', 'Compare'],
+          ] as const
+        ).map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={mode === id} className={mode === id ? 'tab active' : 'tab'} onClick={() => setMode(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="controls">
         <label className="threshold">
           <span>Threshold</span>
@@ -268,6 +283,7 @@ function QuestionView({
             </button>
           )}
         </label>
+        {mode === 'overview' && (<>
         <label>
           <span>Split by</span>
           <select value={split} onChange={(e) => setSplit(e.target.value)}>
@@ -285,7 +301,12 @@ function QuestionView({
             <option value="sqrt">square root</option>
           </select>
         </label>
+        </>)}
       </div>
+
+      {mode === 'compare' ? (
+        <CompareView rows={rows} t={t} pooled={pooled} features={features} type={type} colors={colors} onOpen={setOpen} />
+      ) : (<>
 
       {points.length > 0 ? (
         <div className="tiles">
@@ -392,6 +413,7 @@ function QuestionView({
           </button>
         )}
       </section>
+      </>)}
       {open && <RecordPanel row={open} onClose={() => setOpen(undefined)} />}
     </div>
   );

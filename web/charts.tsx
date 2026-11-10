@@ -1,5 +1,6 @@
 import * as Plot from '@observablehq/plot';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Pair } from '../src/compare.ts';
 import type { Row } from '../src/format.ts';
 import { featureOf, labeled, reliability, sweep } from '../src/stats.ts';
 
@@ -216,6 +217,65 @@ export function Sweep({ rows, t, split, words, colors }: { rows: Row[]; t: numbe
         ],
       }),
     [data, t, colors, groups, split],
+  );
+  return <div ref={ref} className="chart" />;
+}
+
+/** One dot per lined-up sample: p on side A against p on side B. */
+export function PairScatter({
+  pairs,
+  t,
+  labels,
+  colors,
+  onPick,
+}: {
+  pairs: Pair[];
+  t: number;
+  labels: { a: string; b: string };
+  colors: Colors;
+  onPick?: (p: Pair) => void;
+}) {
+  // Draw unchanged samples first so flips stay on top.
+  const order: Record<Pair['change'], number> = { unlabeled: 0, same: 1, better: 2, worse: 3 };
+  const data = useMemo(() => [...pairs].sort((x, y) => order[x.change] - order[y.change]), [pairs]);
+  const ref = usePlot(
+    (width) => {
+      const size = Math.min(width, 520);
+      const svg = Plot.plot({
+        ...common(colors),
+        width: size,
+        height: size,
+        x: { domain: [0, 1], label: `p · ${labels.a}` },
+        y: { domain: [0, 1], label: `p · ${labels.b}`, grid: true },
+        color: {
+          domain: ['worse', 'better', 'same', 'unlabeled'],
+          range: [colors.no, colors.yes, colors.none, colors.none],
+          legend: true,
+        },
+        marks: [
+          Plot.line([[0, 0], [1, 1]], { stroke: colors.muted, strokeDasharray: '3,3' }),
+          Plot.ruleX([t], { stroke: colors.ink, strokeDasharray: '2,3' }),
+          Plot.ruleY([t], { stroke: colors.ink, strokeDasharray: '2,3' }),
+          Plot.dot(data, {
+            x: (d: Pair) => d.a.p,
+            y: (d: Pair) => d.b.p,
+            fill: 'change',
+            r: (d: Pair) => (d.change === 'worse' || d.change === 'better' ? 4 : 2.5),
+            fillOpacity: (d: Pair) => (d.change === 'worse' || d.change === 'better' ? 0.9 : 0.45),
+            tip: true,
+            title: (d: Pair) =>
+              `${d.item}\n${d.question}\nexpected ${d.expected ?? '–'}\n${labels.a}: ${d.a.p.toFixed(2)}${d.a.choices.length ? ` (${d.a.choices.join(', ')})` : ''}\n${labels.b}: ${d.b.p.toFixed(2)}${d.b.choices.length ? ` (${d.b.choices.join(', ')})` : ''}`,
+          }),
+        ],
+      });
+      if (onPick)
+        svg.addEventListener('click', () => {
+          const v = (svg as unknown as { value?: Pair }).value;
+          if (v) onPick(v);
+        });
+      return svg;
+    },
+    [data, colors, t, labels.a, labels.b],
   );
   return <div ref={ref} className="chart" />;
 }

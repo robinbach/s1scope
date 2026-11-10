@@ -576,3 +576,18 @@ pre {
     max-height: 300px;
   }
 }
+
+.modes {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+.controls .side select {
+  max-width: 340px;
+}
+.link-cell {
+  color: var(--accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
