@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import type { Store } from '../src/api.ts';
 import { DuckStore } from '../src/duckdb.ts';
+import { handler } from '../src/server.ts';
 import { MemoryStore } from '../src/store.ts';
 
 const noul = (p: number) => ({ type: 'noul', noul: p });
@@ -111,5 +113,34 @@ test('DuckStore reads only new or changed files and forgets removed ones', async
     assert.deepEqual(plain(await later.overview()), plain(await (await MemoryStore.open([dir])).overview()));
   } finally {
     await later.close();
+  }
+});
+
+test('the server picks up new log files when the page asks for the overview', async () => {
+  const dir = await fixture();
+  const store = await DuckStore.open(':memory:', [dir]);
+  const handle = handler(store);
+  const server = createServer(async (req, res) => {
+    if (!(await handle(req, res))) {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as { port: number };
+  const runs = async () => ((await (await fetch(`http://127.0.0.1:${port}/api/overview`)).json()).runs as { run: string }[]).map((r) => r.run);
+  try {
+    assert.deepEqual(await runs(), ['r1', 'r2']);
+    await writeFile(path.join(dir, 'new.jsonl'), lines({ id: 'z1', run: 'r3', answers: { yes: { type: 'noul', p: 0.5 } } }));
+    // Syncs closer together than a second are skipped; wait that out.
+    await new Promise((r) => setTimeout(r, 1100));
+    assert.deepEqual(await runs(), ['r1', 'r2', 'r3']);
+    // Queries run one at a time, so a sync never overlaps them.
+    const [a, b] = await Promise.all([store.rows({ questions: ['yes'] }), store.refresh(0), store.overview()]);
+    assert.equal(a.rows.length, 5);
+    assert.equal(b.changed, false);
+  } finally {
+    server.close();
+    await store.close();
   }
 });

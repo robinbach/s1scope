@@ -6,6 +6,15 @@ import { PairScatter, type Colors } from './charts.tsx';
 
 const fmt = (x: number | undefined) => (x === undefined ? '–' : x.toFixed(2));
 
+const TABS = ['worse', 'better', 'moved', 'all'] as const;
+type Tab = (typeof TABS)[number];
+export interface CompareLink {
+  by?: string;
+  a?: string;
+  b?: string;
+  tab?: string;
+}
+
 /** Two slices of the same question(s), lined up sample by sample. */
 export function CompareView({
   rows,
@@ -15,6 +24,8 @@ export function CompareView({
   type,
   colors,
   onOpen,
+  link,
+  setLink,
 }: {
   rows: Row[];
   t: number;
@@ -23,9 +34,12 @@ export function CompareView({
   type: Row['type'];
   colors: Colors;
   onOpen: (r: Row) => void;
+  /** Compare-by feature, A, B and table tab as the address has them (see url.ts); undefined = default. */
+  link: CompareLink;
+  setLink: (patch: Partial<CompareLink>) => void;
 }) {
   const choices = features.filter((f) => f !== 'none' && (pooled || f !== 'question'));
-  const [feature, setFeature] = useState(choices.includes('run') ? 'run' : choices[0]);
+  const feature = link.by !== undefined && choices.includes(link.by) ? link.by : choices.includes('run') ? 'run' : choices[0];
   const values = useMemo(() => {
     const counts = new Map<string, number>();
     for (const r of rows) counts.set(featureOf(r, feature), (counts.get(featureOf(r, feature)) ?? 0) + 1);
@@ -54,10 +68,17 @@ export function CompareView({
     }
     return { a: values.at(-2), b: values.at(-1) };
   }, [rows, feature, values]);
-  const [picked, setPicked] = useState<{ a?: string; b?: string }>({});
-  const a = picked.a !== undefined && values.includes(picked.a) ? picked.a : defaults.a;
-  const b = picked.b !== undefined && values.includes(picked.b) ? picked.b : defaults.b;
-  const [tab, setTab] = useState<'worse' | 'better' | 'moved' | 'all'>('worse');
+  const a = link.a !== undefined && values.includes(link.a) ? link.a : defaults.a;
+  const b = link.b !== undefined && values.includes(link.b) ? link.b : defaults.b;
+  const setPicked = (p: { a?: string; b?: string }) => setLink(p);
+  const tab = TABS.includes(link.tab as Tab) ? (link.tab as Tab) : 'worse';
+  const setTab = (id: Tab) => setLink({ tab: id });
+  // Values a link asked for that are not in this data.
+  const unknown = [
+    link.by !== undefined && !choices.includes(link.by) && `compare by ${link.by}`,
+    link.a !== undefined && !values.includes(link.a) && `A = ${link.a}`,
+    link.b !== undefined && !values.includes(link.b) && `B = ${link.b}`,
+  ].filter(Boolean);
   const [shown, setShown] = useState(50);
 
   const result = useMemo(() => (a !== undefined && b !== undefined && a !== b ? compare(rows, feature, a, b, t) : undefined), [rows, feature, a, b, t]);
@@ -97,14 +118,14 @@ export function CompareView({
 
   return (
     <>
+      {unknown.length > 0 && <p className="linknote">Not in this data: {unknown.join(', ')}. Showing the defaults instead.</p>}
       <div className="controls">
         <label>
           <span>Compare by</span>
           <select
             value={feature}
             onChange={(e) => {
-              setFeature(e.target.value);
-              setPicked({});
+              setLink({ by: e.target.value, a: undefined, b: undefined });
             }}
           >
             {choices.map((f) => (

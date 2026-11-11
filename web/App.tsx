@@ -2,26 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Overview, RowQuery, RowResult } from '../src/api.ts';
 import type { DecisionRecord, Row } from '../src/format.ts';
 import { brier, confusion, ece, featureOf, labeled, usualThreshold } from '../src/stats.ts';
-import { CompareView } from './Compare.tsx';
+import { CompareView, type CompareLink } from './Compare.tsx';
 import { Histogram, Reliability, Sweep, useColors } from './charts.tsx';
+import { describeRuns, formatView, matcher, parseView, selectRuns, type ViewState } from './url.ts';
+
+/** The view settings below the question that the address carries (see url.ts). */
+type Ui = Pick<ViewState, 'view' | 'by' | 'a' | 'b' | 't' | 'split' | 'tab' | 'open'>;
+const uiOf = (v: ViewState): Ui => ({ view: v.view, by: v.by, a: v.a, b: v.b, t: v.t, split: v.split, tab: v.tab, open: v.open });
 
 const fmt = (x: number | undefined, digits = 2) => (x === undefined ? '–' : x.toFixed(digits));
 const pct = (x: number | undefined) => (x === undefined ? '–' : `${(x * 100).toFixed(1)}%`);
-
-/** Question filter: plain text matches as a substring; /…/ is a regular expression. */
-function matcher(filter: string) {
-  const f = filter.trim();
-  if (!f) return () => true;
-  if (f.length > 2 && f.startsWith('/') && f.endsWith('/')) {
-    try {
-      const re = new RegExp(f.slice(1, -1));
-      return (q: string) => re.test(q);
-    } catch {
-      return () => false;
-    }
-  }
-  return (q: string) => q.toLowerCase().includes(f.toLowerCase());
-}
 
 /**
  * Fetches the answers to the given questions in the given runs. Narrowing the runs filters the
@@ -33,7 +23,7 @@ function useRows(questions: string[], runs: Set<string> | undefined, runCount: n
   const [state, setState] = useState<Loaded>({ key: '', questions: '' });
   // Send no run list when every run is selected: it is the common case and keeps the request small.
   const all = runs?.size === runCount;
-  const query: RowQuery | undefined = runs && questions.length ? { questions, ...(all ? {} : { runs: [...runs].sort() }) } : undefined;
+  const query: RowQuery | undefined = runs?.size && questions.length ? { questions, ...(all ? {} : { runs: [...runs].sort() }) } : undefined;
   const key = query ? JSON.stringify(query) : '';
   const qkey = JSON.stringify(questions);
   const covered =
@@ -64,38 +54,55 @@ export function App() {
   const [data, setData] = useState<Overview>();
   const [error, setError] = useState<string>();
   const [runs, setRuns] = useState<Set<string>>();
-  const [filter, setFilter] = useState(() => new URLSearchParams(location.hash.slice(1)).get('f') ?? '');
-  const [pool, setPool] = useState(() => new URLSearchParams(location.hash.slice(1)).get('pool') === '1');
-  const [question, setQuestion] = useState(() => new URLSearchParams(location.hash.slice(1)).get('q') ?? '');
+  const [linked] = useState(() => parseView(location.hash));
+  const [filter, setFilter] = useState(linked.f);
+  const [pool, setPool] = useState(linked.pool);
+  const [question, setQuestion] = useState(linked.q);
+  const [ui, setUiState] = useState<Ui>(() => uiOf(linked));
+  const setUi = (patch: Partial<Ui>) => setUiState((u) => ({ ...u, ...patch }));
+  // The run filter from the link, kept in the address while the selection still matches it.
+  const [runFilter, setRunFilter] = useState(linked.runs);
+  // What a link asked for that the data does not have.
+  const [linkNotes, setLinkNotes] = useState<string[]>([]);
+
+  // Applies a link to the page. Runs need the run names, so this waits for the overview.
+  const applyLink = (v: ViewState, d: Overview) => {
+    const picked = selectRuns(v, d.runs.map((r) => r.run));
+    setRuns(picked.runs);
+    setRunFilter(v.runs);
+    setFilter(v.f);
+    setPool(v.pool);
+    setQuestion(v.q);
+    setUiState(uiOf(v));
+    setLinkNotes(picked.missing);
+  };
 
   useEffect(() => {
     fetch('/api/overview')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d: Overview) => {
         setData(d);
-        setRuns(new Set(d.runs.map((r) => r.run)));
+        applyLink(linked, d);
       })
       .catch((e: Error) => setError(e.message));
   }, []);
 
+  // A link pasted into this tab: apply it. (The page's own updates use replaceState, which fires no hashchange.)
   useEffect(() => {
-    const onHash = () => {
-      const h = new URLSearchParams(location.hash.slice(1));
-      setQuestion(h.get('q') ?? '');
-      setFilter(h.get('f') ?? '');
-      setPool(h.get('pool') === '1');
-    };
+    if (!data) return;
+    const onHash = () => applyLink(parseView(location.hash), data);
     addEventListener('hashchange', onHash);
     return () => removeEventListener('hashchange', onHash);
-  }, []);
+  }, [data]);
 
+  // Keep the address in step with the page, so it can be copied at any time.
   useEffect(() => {
-    const p = new URLSearchParams();
-    if (question) p.set('q', question);
-    if (filter) p.set('f', filter);
-    if (pool) p.set('pool', '1');
-    history.replaceState(null, '', `#${p}`);
-  }, [question, filter, pool]);
+    if (!data || !runs) return;
+    const runPart = describeRuns(runs, data.runs.map((r) => r.run), runFilter);
+    if (runFilter !== undefined && runPart.runs === undefined) setRunFilter(undefined);
+    const hash = formatView({ q: question, f: filter, pool, ...runPart, ...ui });
+    if (hash !== location.hash.slice(1)) history.replaceState(null, '', hash ? `#${hash}` : location.pathname);
+  }, [data, runs, runFilter, question, filter, pool, ui]);
 
   const runList = useMemo(
     (): [string, RunInfo][] =>
@@ -155,6 +162,7 @@ export function App() {
           <span className="muted">
             {data.answers.toLocaleString()} answers{data.skippedCount ? ` · ${data.skippedCount} lines skipped` : ''}
           </span>
+          <CopyLink />
         </header>
         <RunPicker runList={runList} runs={runs} setRuns={setRuns} />
         <section className="questions">
@@ -181,6 +189,8 @@ export function App() {
                 onClick={() => {
                   setPool(false);
                   setQuestion(q);
+                  // Keep how the page looks; drop what belongs to the old question.
+                  setUiState((u) => ({ view: u.view, by: u.by, split: u.split }));
                 }}
               >
                 <span className="grow mono" title={q}>
@@ -198,20 +208,58 @@ export function App() {
         </section>
       </aside>
       <main>
+        {linkNotes.length > 0 && (
+          <p className="linknote">
+            From the link: {linkNotes.join('; ')}.{' '}
+            <button className="link" onClick={() => setLinkNotes([])}>
+              dismiss
+            </button>
+          </p>
+        )}
         {rowsError ? (
           <div className="empty">Could not load answers: {rowsError}</div>
         ) : selected.length ? (
           <>
             {loading && <div className="loading-bar" aria-label="Loading" />}
-            <QuestionView key={title} title={title} rows={selected} pooled={pooled} definitions={result?.definitions ?? {}} />
+            <QuestionView
+              key={title}
+              title={title}
+              rows={selected}
+              pooled={pooled}
+              definitions={result?.definitions ?? {}}
+              ui={ui}
+              setUi={setUi}
+            />
           </>
         ) : loading ? (
           <div className="empty">Loading answers…</div>
         ) : (
-          <div className="empty">{wanted.length ? 'No answers to this question in the selected runs.' : 'Pick a question on the left.'}</div>
+          <div className="empty">
+            {!runs.size ? 'No runs selected.' : wanted.length ? 'No answers to this question in the selected runs.' : 'Pick a question on the left.'}
+          </div>
         )}
       </main>
     </div>
+  );
+}
+
+/** Copies the address, which always describes the current view. */
+function CopyLink() {
+  const [done, setDone] = useState(false);
+  const copy = () => {
+    navigator.clipboard
+      ?.writeText(location.href)
+      .then(() => {
+        setDone(true);
+        setTimeout(() => setDone(false), 1500);
+      })
+      .catch(() => prompt('Copy this link', location.href));
+    if (!navigator.clipboard) prompt('Copy this link', location.href);
+  };
+  return (
+    <button className="link copylink" onClick={copy} title="Copy a link to exactly this view">
+      {done ? 'Copied' : 'Copy link'}
+    </button>
   );
 }
 
@@ -220,21 +268,20 @@ function QuestionView({
   rows,
   pooled,
   definitions,
+  ui,
+  setUi,
 }: {
   title: string;
   rows: Row[];
   pooled: boolean;
   definitions: Record<string, unknown>;
+  ui: Ui;
+  setUi: (patch: Partial<Ui>) => void;
 }) {
   const type = rows[0].type;
   const usual = usualThreshold(rows);
-  const [t, setT] = useState(usual ?? 0.5);
-  const [split, setSplit] = useState('none');
   const [yScale, setYScale] = useState<'linear' | 'sqrt'>('linear');
-  const [tab, setTab] = useState<'errors' | 'near' | 'all'>('errors');
-  const [open, setOpen] = useState<Row>();
   const [shown, setShown] = useState(50);
-  const [mode, setMode] = useState<'overview' | 'compare'>('overview');
   const colors = useColors();
 
   const features = useMemo(() => {
@@ -243,6 +290,26 @@ function QuestionView({
     const base = ['none', 'run', 'model', 'backend', 'question', ...(rows.some((r) => r.qv) ? ['version'] : [])];
     return [...base, ...[...tags].sort().map((k) => `tag:${k}`)];
   }, [rows]);
+
+  // Settings live in the address (url.ts); anything it has that does not fit this data falls back to the default.
+  const t = ui.t ?? usual ?? 0.5;
+  const setT = (v: number) => setUi({ t: v });
+  const mode = ui.view;
+  const setMode = (view: Ui['view']) => setUi({ view });
+  const split = ui.split !== undefined && features.includes(ui.split) ? ui.split : 'none';
+  const setSplit = (v: string) => setUi({ split: v === 'none' ? undefined : v });
+  const TABS = ['errors', 'near', 'all'] as const;
+  const tab = TABS.includes(ui.tab as (typeof TABS)[number]) ? (ui.tab as (typeof TABS)[number]) : 'errors';
+  const setTab = (id: (typeof TABS)[number]) => setUi({ tab: id });
+  const open = useMemo(
+    () => (ui.open === undefined ? undefined : (rows.find((r) => r.id === ui.open && r.question === title) ?? rows.find((r) => r.id === ui.open))),
+    [rows, ui.open, title],
+  );
+  const setOpen = (r: Row | undefined) => setUi({ open: r?.id });
+  const unknown = [
+    ui.split !== undefined && !features.includes(ui.split) && `split by ${ui.split}`,
+    ui.open !== undefined && !open && `record ${ui.open}`,
+  ].filter(Boolean);
 
   const points = labeled(rows);
   const c = confusion(points, t);
@@ -282,6 +349,8 @@ function QuestionView({
           {points.length} labeled
         </span>
       </div>
+
+      {unknown.length > 0 && <p className="linknote">Not in this data: {unknown.join(', ')}.</p>}
 
       <Definition rows={rows} definitions={definitions} pooled={pooled} />
 
@@ -338,7 +407,17 @@ function QuestionView({
       </div>
 
       {mode === 'compare' ? (
-        <CompareView rows={rows} t={t} pooled={pooled} features={features} type={type} colors={colors} onOpen={setOpen} />
+        <CompareView
+          rows={rows}
+          t={t}
+          pooled={pooled}
+          features={features}
+          type={type}
+          colors={colors}
+          onOpen={setOpen}
+          link={{ by: ui.by, a: ui.a, b: ui.b, tab: ui.tab }}
+          setLink={(patch: Partial<CompareLink>) => setUi(patch)}
+        />
       ) : (<>
 
       {points.length > 0 ? (

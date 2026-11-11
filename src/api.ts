@@ -2,7 +2,7 @@
  * The viewer's data API: what the page asks for and what a store answers.
  * Types only, so the page can import them without pulling in Node code.
  *
- *   GET  /api/overview          → Overview   (sidebar: runs and per-run question counts)
+ *   GET  /api/overview          → Overview   (sidebar: runs and per-run question counts; picks up new log files first)
  *   POST /api/rows  RowQuery    → RowResult  (one question, or a pooled set, in the chosen runs)
  *   GET  /api/record?id=…       → DecisionRecord (the raw call)
  */
@@ -54,5 +54,7 @@ export interface Store {
   /** Optional: rows() already serialized as JSON, for stores that can produce it faster. */
   rowsJson?(query: RowQuery): Promise<string>;
   record(id: string): Promise<DecisionRecord | undefined>;
+  /** Optional: pick up log files added, changed or removed since the store was opened. */
+  refresh?(): Promise<{ changed: boolean }>;
   close(): Promise<void>;
 }

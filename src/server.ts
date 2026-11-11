@@ -35,12 +35,14 @@ const strings = (x: unknown) => Array.isArray(x) && x.every((s) => typeof s === 
 
 /** Returns true when it handled the request. `webRoot` is the built page; leave it out in dev (Vite serves the page). */
 export function handler(store: Store, webRoot?: string) {
-  // The overview only changes when the store is reopened, so build it once.
+  // The overview only changes when the store picks up new files, so keep it until then.
   let overview: Promise<{ raw: Buffer; gzipped: Buffer }> | undefined;
   return async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     try {
       if (url.pathname === '/api/overview') {
+        // A page load is when new logs should show up: sync first, and rebuild the overview if anything changed.
+        if (store.refresh && (await store.refresh()).changed) overview = undefined;
         overview ??= store.overview().then((o) => {
           const raw = Buffer.from(JSON.stringify(o));
           return { raw, gzipped: gzipSync(raw) };

@@ -611,3 +611,23 @@ pre {
 @media (prefers-reduced-motion: reduce) {
   .loading-bar { animation: none; background: var(--series-yes); opacity: 0.5; }
 }
+
+/* A link asked for something the data does not have. */
+.linknote {
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--surface-2, transparent);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.brand {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.brand .copylink {
+  margin-left: auto;
+  font-size: 12px;
+}

@@ -197,11 +197,38 @@ SELECT coalesce('[' || string_agg(json_merge_patch('{}', ${ROW_OBJECT})::VARCHAR
 FROM rows WHERE list_contains($1, question) ${runs ? 'AND list_contains($2, run)' : ''}`;
 
 export class DuckStore implements Store {
+  /** Every call waits for the one before it, so a sync never runs alongside a query. */
+  private queue: Promise<unknown> = Promise.resolve();
+  private syncedAt = performance.now();
+
   private constructor(
     private readonly instance: DuckDBInstance,
     private readonly db: DuckDBConnection,
-    readonly report: SyncReport,
+    private readonly targets: string[],
+    /** The last sync that read or dropped files (the first one at open). */
+    public report: SyncReport,
   ) {}
+
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(fn, fn);
+    this.queue = next.catch(() => undefined);
+    return next;
+  }
+
+  /**
+   * Picks up files added, changed or removed since the last sync. Cheap when nothing changed (one stat per
+   * file); calls within `minGapMs` of the last sync are skipped.
+   */
+  refresh(minGapMs = 1000): Promise<{ changed: boolean; report?: SyncReport }> {
+    return this.exclusive(async () => {
+      if (performance.now() - this.syncedAt < minGapMs) return { changed: false };
+      const report = await sync(this.db, this.targets);
+      this.syncedAt = performance.now();
+      const changed = report.read > 0 || report.dropped > 0;
+      if (changed) this.report = report;
+      return { changed, report };
+    });
+  }
 
   /** Opens (or creates) the index at `file` and brings it up to date with the logs under `targets`. */
   static async open(file: string, targets: string[]) {
@@ -209,7 +236,7 @@ export class DuckStore implements Store {
     const instance = await DuckDBInstance.create(file);
     const db = await instance.connect();
     try {
-      return new DuckStore(instance, db, await sync(db, targets));
+      return new DuckStore(instance, db, targets, await sync(db, targets));
     } catch (e) {
       db.closeSync();
       instance.closeSync();
@@ -217,7 +244,11 @@ export class DuckStore implements Store {
     }
   }
 
-  async overview(): Promise<Overview> {
+  overview(): Promise<Overview> {
+    return this.exclusive(() => this.overviewNow());
+  }
+
+  private async overviewNow(): Promise<Overview> {
     const [totals] = await readAll<{ calls: number; answers: number; labeled: number; skippedCount: number }>(
       this.db,
       `SELECT (SELECT count(*) FROM records)::INTEGER AS calls, (SELECT count(*) FROM rows)::INTEGER AS answers,
@@ -244,7 +275,12 @@ export class DuckStore implements Store {
   }
 
   /** rows(), already serialized: what the server sends. */
-  async rowsJson({ questions, runs }: RowQuery): Promise<string> {
+  rowsJson(query: RowQuery): Promise<string> {
+    return this.exclusive(() => this.rowsJsonNow(query));
+  }
+
+  private async rowsJsonNow({ questions, runs }: RowQuery): Promise<string> {
+    if (!questions.length || (runs && !runs.length)) return '{"rows":[],"definitions":{}}';
     const values = [listValue(questions), ...(runs ? [listValue(runs)] : [])];
     const [found] = await readAll<{ rows: string; versions: string[] }>(this.db, ROWS_JSON(!!runs), values);
     const definitions: string[] = [];
@@ -256,13 +292,19 @@ export class DuckStore implements Store {
     return `{"rows":${found.rows},"definitions":{${definitions.join(',')}}}`;
   }
 
-  async record(id: string): Promise<DecisionRecord | undefined> {
+  record(id: string): Promise<DecisionRecord | undefined> {
+    return this.exclusive(() => this.recordNow(id));
+  }
+
+  private async recordNow(id: string): Promise<DecisionRecord | undefined> {
     const [r] = await readAll<{ json: string }>(this.db, 'SELECT json FROM records WHERE id = $1 LIMIT 1', [id]);
     return r && JSON.parse(r.json);
   }
 
-  async close() {
-    this.db.closeSync();
-    this.instance.closeSync();
+  close() {
+    return this.exclusive(async () => {
+      this.db.closeSync();
+      this.instance.closeSync();
+    });
   }
 }
