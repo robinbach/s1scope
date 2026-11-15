@@ -24,7 +24,12 @@ export function Root() {
 
   // Back, forward, or a link pasted into this tab.
   useEffect(() => {
-    const sync = () => setHash(location.hash);
+    const sync = (e: Event) => {
+      // A plain link from the dashboard into the docs (a "?" next to a chart): remember the view to come back to.
+      if (e instanceof HashChangeEvent && pageOf(location.hash) === 'docs' && pageOf(new URL(e.oldURL).hash) === 'dashboard')
+        dashboardHash = new URL(e.oldURL).hash.slice(1);
+      setHash(location.hash);
+    };
     addEventListener('popstate', sync);
     addEventListener('hashchange', sync);
     return () => {

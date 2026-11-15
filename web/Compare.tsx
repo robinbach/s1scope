@@ -3,6 +3,7 @@ import { compare, type Pair } from '../src/compare.ts';
 import type { Row } from '../src/format.ts';
 import { featureOf } from '../src/stats.ts';
 import { PairScatter, type Colors } from './charts.tsx';
+import { Help } from './Help.tsx';
 
 const fmt = (x: number | undefined) => (x === undefined ? '–' : x.toFixed(2));
 
@@ -121,7 +122,9 @@ export function CompareView({
       {unknown.length > 0 && <p className="linknote">Not in this data: {unknown.join(', ')}. Showing the defaults instead.</p>}
       <div className="controls">
         <label>
-          <span>Compare by</span>
+          <span>
+            Compare by <Help guide="compare" section="choosing-a-and-b" />
+          </span>
           <select
             value={feature}
             onChange={(e) => {
@@ -208,7 +211,7 @@ export function CompareView({
                 {type === 'noul'
                   ? 'p in A against p in B, one dot per sample. Above the diagonal: B says yes more strongly.'
                   : 'Confidence in A against confidence in B, one dot per sample. Above the diagonal: B is more sure of its choice.'}{' '}
-                Click a dot to open its B record.
+                Click a dot to open its B record. <Help guide="compare" section="the-scatter" />
               </figcaption>
               <PairScatter
                 pairs={pairs}

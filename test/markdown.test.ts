@@ -63,3 +63,13 @@ test('docs addresses', () => {
   assert.deepEqual(docRoute('#docs'), { guide: undefined, section: undefined });
   assert.equal(docHref('reference', 'link-parameters'), '#docs/reference/link-parameters');
 });
+
+test('every "?" link in the page points to a guide section that exists', () => {
+  const ids = (guide: string) =>
+    new Set(parse(readFileSync(`docs/${guide}.md`, 'utf8')).flatMap((b) => (b.kind === 'heading' ? [b.id] : [])));
+  for (const file of readdirSync('web').filter((f) => f.endsWith('.tsx'))) {
+    const text = readFileSync(`web/${file}`, 'utf8');
+    for (const m of text.matchAll(/<Help guide="([\w-]+)"(?: section="([\w-]+)")? \/>/g))
+      if (m[2]) assert.ok(ids(m[1]).has(m[2]), `${file}: ${m[1]}#${m[2]}`);
+  }
+});

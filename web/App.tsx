@@ -4,6 +4,7 @@ import type { DecisionRecord, Row } from '../src/format.ts';
 import { brier, confusion, ece, featureOf, labeled, usualThreshold } from '../src/stats.ts';
 import { CompareView, type CompareLink } from './Compare.tsx';
 import { Histogram, Reliability, Sweep, useColors } from './charts.tsx';
+import { Help } from './Help.tsx';
 import { pageOf } from './nav.ts';
 import { loadOverview } from './overview.ts';
 import { describeRuns, formatView, matcher, parseView, selectRuns, type ViewState } from './url.ts';
@@ -321,7 +322,7 @@ function QuestionView({
         </h2>
         <span className="muted">
           {type === 'noul' ? 'yes/no · p = P(yes)' : 'choice · p = confidence of the chosen option'} · {rows.length} answers ·{' '}
-          {points.length} labeled
+          {points.length} labeled <Help guide="dashboard" section="the-two-kinds-of-question" />
         </span>
       </div>
 
@@ -359,6 +360,7 @@ function QuestionView({
               app threshold {usual}
             </button>
           )}
+          {mode === 'overview' ? <Help guide="dashboard" section="threshold" /> : <Help guide="compare" section="how-samples-line-up" />}
         </label>
         {mode === 'overview' && (<>
         <label>
@@ -410,8 +412,8 @@ function QuestionView({
               <Tile label="Accuracy when trusted" value={pct(c.precision)} />
             </>
           )}
-          <Tile label="Brier" value={fmt(brier(points), 3)} hint="mean (p − y)², lower is better" />
-          <Tile label="ECE" value={fmt(ece(points), 3)} hint="10-bin expected calibration error" />
+          <Tile label="Brier" value={fmt(brier(points), 3)} hint="mean (p − y)², lower is better" help="tiles" />
+          <Tile label="ECE" value={fmt(ece(points), 3)} hint="10-bin expected calibration error" help="tiles" />
         </div>
       ) : (
         <p className="muted note">No labels for this question: showing the distribution only. Add label lines to see errors and calibration.</p>
@@ -419,7 +421,7 @@ function QuestionView({
 
       <figure>
         <figcaption>
-          Distribution of p{split !== 'none' ? `, by ${split}` : ''}
+          Distribution of p{split !== 'none' ? `, by ${split}` : ''} <Help guide="dashboard" section="charts" />
         </figcaption>
         <Histogram rows={rows} t={t} split={split} words={words} colors={colors} yScale={yScale} />
       </figure>
@@ -427,11 +429,15 @@ function QuestionView({
       {points.length > 0 && (
         <div className="pair">
           <figure>
-            <figcaption>Reliability: predicted p vs observed rate (dot size = answers)</figcaption>
+            <figcaption>
+              Reliability: predicted p vs observed rate (dot size = answers) <Help guide="dashboard" section="charts" />
+            </figcaption>
             <Reliability rows={rows} split={split} colors={colors} />
           </figure>
           <figure>
-            <figcaption>Threshold sweep: errors at every threshold</figcaption>
+            <figcaption>
+              Threshold sweep: errors at every threshold <Help guide="dashboard" section="charts" />
+            </figcaption>
             <Sweep rows={rows} t={t} split={split} words={words} colors={colors} />
           </figure>
         </div>
@@ -506,12 +512,13 @@ function QuestionView({
   );
 }
 
-function Tile({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: 'yes' | 'no' }) {
+function Tile({ label, value, hint, tone, help }: { label: string; value: string; hint?: string; tone?: 'yes' | 'no'; help?: string }) {
   return (
     <div className="tile" title={hint}>
       <div className="tile-label">
         {tone && <span className={`swatch ${tone}`} aria-hidden />}
         {label}
+        {help && <Help guide="dashboard" section={help} />}
       </div>
       <div className="tile-value">{value}</div>
       {hint && <div className="tile-hint">{hint}</div>}

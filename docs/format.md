@@ -50,6 +50,24 @@ What the threshold applies to:
 - choice: `p` = confidence of the chosen option. "Trusted" means `p ≥ threshold`; right or wrong comes from the label.
 - score: shown as a distribution only (for now).
 
+## Recording from Node
+
+`recordingFetch` in `src/record.ts` wraps `fetch` and appends one decision record per call to a JSONL file:
+
+```ts
+import { recordingFetch } from './src/record.ts';
+
+const f = recordingFetch(fetch, { file: 'logs/nightly.jsonl', run: 'nightly 2026-11-09' });
+await f.with({ item: 'ticket-007', tags: { lang: 'en' } })('https://api.typesafe.ai/v1/systemone', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ model: 'jev-latest', state, questions }),
+});
+```
+
+Only calls to `/systemone` URLs are recorded (pass `match` to change that), other calls pass through untouched,
+and the `Authorization` header is never written. `with` adds per-call fields: `item`, `tags`, `labels` and `thresholds`.
+
 ## Label line
 
 ```json

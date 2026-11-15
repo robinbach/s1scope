@@ -45,43 +45,29 @@ node dist/src/cli.js view examples/demo
 # open http://127.0.0.1:4747/
 ```
 
-Development, with hot reload: `S1SCOPE_DATA=examples/demo npm run dev` (Vite, on port 5173). Without
-`S1SCOPE_DATA` it reads `data/`. The dev server keeps its own index, `.s1scope/dev.duckdb` (`S1SCOPE_DB` to change it),
-so it can run next to `s1scope view`; `S1SCOPE_MEMORY=1` holds everything in memory instead.
-
-The viewer keeps an index of the logs in a DuckDB file, `.s1scope/index.duckdb` in the working directory
-(`--db <file>` to put it elsewhere). The first start reads every file; later starts read only files that are new
-or changed, and the page fetches the answers to one question at a time. The JSONL files stay the source: the
-index can be deleted at any time. `--memory` skips the index and holds everything in memory.
+The first start indexes every file into `.s1scope/index.duckdb`; later starts, and every page reload, read only new
+or changed files. The JSONL files stay the source, and the index can be deleted at any time.
 
 ## Logging calls
 
-The format is JSONL, one call per line. See [docs/format.md](docs/format.md).
-From Node, wrap `fetch`:
-
-```ts
-import { recordingFetch } from './src/record.ts';
-
-const f = recordingFetch(fetch, { file: 'logs/nightly.jsonl', run: 'nightly 2026-11-09' });
-await f.with({ item: 'ticket-007', tags: { lang: 'en' } })('https://api.typesafe.ai/v1/systemone', {
-  method: 'POST',
-  headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ model: 'jev-latest', state, questions }),
-});
-```
-
-Only calls to `/systemone` URLs are recorded, and the `Authorization` header is never written.
-Labels go in the same files or separate ones:
+The format is JSONL, one call per line, and labels can go in the same files or separate ones:
 
 ```json
 {"item": "ticket-007", "question": "urgent", "expected": true}
 ```
 
+From Node, `recordingFetch` (`src/record.ts`) wraps `fetch` and writes the log for you. See [docs/format.md](docs/format.md).
+
 ## Documentation
 
-- [Log format](docs/format.md): decision records and label lines.
+The guides are under [docs/](docs/), and the viewer shows them on its Document page.
+
+- [Getting started](docs/getting-started.md): install, the demo data, your own logs.
+- [Logging calls](docs/format.md): decision records, label lines, recording from Node.
 - [Reading the dashboard](docs/dashboard.md): what each chart and number means.
-- [Links and CLI](docs/reference.md): command-line options, the index, and link parameters.
+- [Comparing runs](docs/compare.md): two runs, models or versions, sample by sample.
+- [Links and CLI](docs/reference.md): command-line options, the index, the dev server, link parameters.
+- [HTTP API](docs/api.md): the endpoints the page uses, for scripts.
 
 ## License
 
