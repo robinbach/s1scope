@@ -55,6 +55,10 @@
 * {
   box-sizing: border-box;
 }
+:root {
+  --topbar-height: 48px;
+  --side-width: minmax(260px, 320px);
+}
 html,
 body {
   margin: 0;
@@ -108,8 +112,8 @@ h4 {
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) 1fr;
-  min-height: 100vh;
+  grid-template-columns: var(--side-width) 1fr;
+  min-height: calc(100vh - var(--topbar-height));
 }
 aside {
   border-right: 1px solid var(--border);
@@ -118,9 +122,9 @@ aside {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  height: 100vh;
+  height: calc(100vh - var(--topbar-height));
   position: sticky;
-  top: 0;
+  top: var(--topbar-height);
   overflow: hidden;
 }
 aside section h2 {
@@ -129,9 +133,6 @@ aside section h2 {
   letter-spacing: 0.04em;
   color: var(--text-muted);
   margin-bottom: 8px;
-}
-.brand h1 {
-  font-size: 17px;
 }
 .check {
   display: flex;
@@ -595,7 +596,7 @@ pre {
 /* Thin bar at the top of the main pane while answers load. */
 .loading-bar {
   position: sticky;
-  top: 0;
+  top: var(--topbar-height);
   height: 2px;
   margin-bottom: -2px;
   background: linear-gradient(90deg, transparent, var(--series-yes), transparent);
@@ -621,13 +622,252 @@ pre {
   color: var(--text-secondary);
   font-size: 13px;
 }
+/* Top bar: the brand sits above the sidebar, the page links to its right. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: var(--side-width) 1fr;
+  height: var(--topbar-height);
+  background: var(--page);
+  border-bottom: 1px solid var(--border);
+}
 .brand {
   display: flex;
   align-items: baseline;
+  gap: 8px;
+  padding: 0 16px;
+  align-self: stretch;
+  align-content: center;
   flex-wrap: wrap;
-  gap: 4px 8px;
+  background: var(--surface-1);
+  border-right: 1px solid var(--border);
+  min-width: 0;
+  white-space: nowrap;
+}
+.brand h1 {
+  font-size: 17px;
 }
 .brand .copylink {
   margin-left: auto;
   font-size: 12px;
+}
+.topnav {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 0 20px;
+}
+.topnav a {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.topnav a:hover {
+  color: var(--text-primary);
+}
+.topnav a.active {
+  color: var(--text-primary);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+/* Document page */
+.docs-body {
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.docs-body h2 {
+  font-size: 20px;
+}
+.docs-lead {
+  margin: 0;
+  color: var(--text-secondary);
+}
+.guides {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.guide {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+.guide-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.guide-head h3 {
+  font-size: 15px;
+}
+.guide p {
+  margin: 4px 0;
+}
+.guide ul {
+  margin: 4px 0 6px;
+  padding-left: 20px;
+}
+.guide.planned h3,
+.guide.planned p {
+  color: var(--text-secondary);
+}
+.guide h3 a {
+  color: inherit;
+  text-decoration: none;
+}
+.guide h3 a:hover {
+  color: var(--accent);
+}
+
+/* Guides list beside a guide */
+.docs-toc {
+  overflow-y: auto;
+}
+.docs-toc h2 a {
+  color: inherit;
+  text-decoration: none;
+}
+.docs-toc nav {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -6px;
+}
+.docs-toc nav a,
+.docs-toc nav .planned {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.docs-toc nav a:hover {
+  background: var(--surface-2);
+}
+.docs-toc nav a.current {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.docs-toc nav .planned {
+  color: var(--text-muted);
+  justify-content: space-between;
+}
+.docs-toc .outline nav a {
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 3px 6px;
+}
+
+/* A rendered guide */
+.prose {
+  max-width: 760px;
+  line-height: 1.6;
+}
+.prose h1 {
+  font-size: 24px;
+  margin: 0 0 12px;
+}
+.prose h2 {
+  font-size: 18px;
+  margin: 32px 0 8px;
+  padding-top: 8px;
+  scroll-margin-top: calc(var(--topbar-height) + 8px);
+}
+.prose h3 {
+  font-size: 15px;
+  margin: 24px 0 6px;
+  scroll-margin-top: calc(var(--topbar-height) + 8px);
+}
+.prose h4 {
+  font-size: 14px;
+  color: var(--text-primary);
+  margin: 18px 0 4px;
+}
+.prose p,
+.prose ul,
+.prose ol {
+  margin: 0 0 12px;
+}
+.prose ul,
+.prose ol {
+  padding-left: 22px;
+}
+.prose li + li {
+  margin-top: 4px;
+}
+.prose a {
+  color: var(--accent);
+}
+.prose :not(pre) > code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+.prose pre {
+  margin: 0 0 14px;
+  max-height: none;
+  white-space: pre;
+  overflow-x: auto;
+  overflow-wrap: normal;
+}
+.prose .table-wrap {
+  overflow-x: auto;
+  margin: 0 0 14px;
+}
+.prose table {
+  font-size: 13.5px;
+}
+.prose th {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  border-bottom-color: var(--grid);
+}
+.prose td {
+  vertical-align: top;
+}
+.prose tbody tr {
+  cursor: auto;
+}
+.prose tbody tr:hover {
+  background: none;
+}
+
+@media (max-width: 760px) {
+  :root {
+    --topbar-height: 44px;
+  }
+  .topbar {
+    grid-template-columns: auto 1fr;
+  }
+  .brand {
+    flex-wrap: nowrap;
+    align-items: center;
+    padding: 0 12px;
+  }
+  .brand .muted {
+    display: none;
+  }
+  .topnav {
+    padding: 0 8px;
+    justify-content: flex-end;
+  }
+  .topnav a {
+    padding: 0 8px;
+  }
+  aside {
+    top: auto;
+  }
 }

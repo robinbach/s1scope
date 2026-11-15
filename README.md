@@ -45,7 +45,9 @@ node dist/src/cli.js view examples/demo
 # open http://127.0.0.1:4747/
 ```
 
-Development, with hot reload: `S1SCOPE_DATA=examples/demo npm run dev`.
+Development, with hot reload: `S1SCOPE_DATA=examples/demo npm run dev` (Vite, on port 5173). Without
+`S1SCOPE_DATA` it reads `data/`. The dev server keeps its own index, `.s1scope/dev.duckdb` (`S1SCOPE_DB` to change it),
+so it can run next to `s1scope view`; `S1SCOPE_MEMORY=1` holds everything in memory instead.
 
 The viewer keeps an index of the logs in a DuckDB file, `.s1scope/index.duckdb` in the working directory
 (`--db <file>` to put it elsewhere). The first start reads every file; later starts read only files that are new
@@ -74,6 +76,12 @@ Labels go in the same files or separate ones:
 ```json
 {"item": "ticket-007", "question": "urgent", "expected": true}
 ```
+
+## Documentation
+
+- [Log format](docs/format.md): decision records and label lines.
+- [Reading the dashboard](docs/dashboard.md): what each chart and number means.
+- [Links and CLI](docs/reference.md): command-line options, the index, and link parameters.
 
 ## License
 

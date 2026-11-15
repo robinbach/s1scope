@@ -4,6 +4,8 @@ import type { DecisionRecord, Row } from '../src/format.ts';
 import { brier, confusion, ece, featureOf, labeled, usualThreshold } from '../src/stats.ts';
 import { CompareView, type CompareLink } from './Compare.tsx';
 import { Histogram, Reliability, Sweep, useColors } from './charts.tsx';
+import { pageOf } from './nav.ts';
+import { loadOverview } from './overview.ts';
 import { describeRuns, formatView, matcher, parseView, selectRuns, type ViewState } from './url.ts';
 
 /** The view settings below the question that the address carries (see url.ts). */
@@ -78,8 +80,7 @@ export function App() {
   };
 
   useEffect(() => {
-    fetch('/api/overview')
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    loadOverview()
       .then((d: Overview) => {
         setData(d);
         applyLink(linked, d);
@@ -90,7 +91,8 @@ export function App() {
   // A link pasted into this tab: apply it. (The page's own updates use replaceState, which fires no hashchange.)
   useEffect(() => {
     if (!data) return;
-    const onHash = () => applyLink(parseView(location.hash), data);
+    // The top bar handles a switch to another page; this page is about to go.
+    const onHash = () => pageOf(location.hash) === 'dashboard' && applyLink(parseView(location.hash), data);
     addEventListener('hashchange', onHash);
     return () => removeEventListener('hashchange', onHash);
   }, [data]);
@@ -157,13 +159,6 @@ export function App() {
   return (
     <div className="layout">
       <aside>
-        <header className="brand">
-          <h1>s1scope</h1>
-          <span className="muted">
-            {data.answers.toLocaleString()} answers{data.skippedCount ? ` · ${data.skippedCount} lines skipped` : ''}
-          </span>
-          <CopyLink />
-        </header>
         <RunPicker runList={runList} runs={runs} setRuns={setRuns} />
         <section className="questions">
           <h2>Questions</h2>
@@ -240,26 +235,6 @@ export function App() {
         )}
       </main>
     </div>
-  );
-}
-
-/** Copies the address, which always describes the current view. */
-function CopyLink() {
-  const [done, setDone] = useState(false);
-  const copy = () => {
-    navigator.clipboard
-      ?.writeText(location.href)
-      .then(() => {
-        setDone(true);
-        setTimeout(() => setDone(false), 1500);
-      })
-      .catch(() => prompt('Copy this link', location.href));
-    if (!navigator.clipboard) prompt('Copy this link', location.href);
-  };
-  return (
-    <button className="link copylink" onClick={copy} title="Copy a link to exactly this view">
-      {done ? 'Copied' : 'Copy link'}
-    </button>
   );
 }
 
