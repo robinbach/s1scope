@@ -85,3 +85,8 @@ a number for a score. A label applies to every record with that `item`, in every
  "response":{"model":"jev-1.13.0","answers":{"urgent":{"type":"noul","noul":0.82}},"usage":{"input_tokens":310,"output_tokens":22}},
  "thresholds":{"urgent":0.5},"ms":143,"status":200,"tags":{"lang":"en"}}
 ```
+
+## Checking a log
+
+`s1scope check <file-or-folder>` reads a log the way the viewer does and lists the lines it would skip and the
+answers it could not use, without starting the viewer. See [Links and CLI](reference.md#command-line).

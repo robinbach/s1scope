@@ -57,6 +57,10 @@ The format is JSONL, one call per line, and labels can go in the same files or s
 ```
 
 From Node, `recordingFetch` (`src/record.ts`) wraps `fetch` and writes the log for you. See [docs/format.md](docs/format.md).
+`s1scope check <folder>` validates a log without starting the viewer.
+
+Converting another project's test output? [skills/s1scope/](skills/s1scope/SKILL.md) is a guide for coding agents,
+with a converter template and an example log.
 
 ## Documentation
 

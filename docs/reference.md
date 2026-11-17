@@ -18,6 +18,16 @@ on `http://127.0.0.1:<port>/`. It listens on the loopback address only and uploa
 From a checkout without installing, run `node dist/src/cli.js view …` after `npm run build`,
 or `npm run view -- <paths>`.
 
+```sh
+s1scope check <file-or-folder>... [--json]
+```
+
+`check` reads the same files as `view` without serving anything or writing an index, and prints the records,
+answers and labeled answers per run, then any problems. It exits with 1 on errors: lines that are not JSON or are
+neither a record nor a label, duplicate record ids, or no answers at all. Warnings do not change the exit code:
+records with no readable answer, probabilities outside 0 to 1, yes/no labels that are not a yes or no, and labels
+for items no record has. `--json` prints the report as JSON instead.
+
 ## The index
 
 By default the viewer keeps an index of the logs in a DuckDB file.

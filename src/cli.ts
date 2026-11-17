@@ -3,6 +3,9 @@
  * s1scope view <file-or-folder>... [--port 4747] [--db .s1scope/index.duckdb] [--memory]
  * Indexes every .jsonl under the given paths and serves the viewer on 127.0.0.1.
  *
+ * s1scope check <file-or-folder>... [--json]
+ * Reads the logs and reports problems without serving anything (see check.ts).
+ *
  * By default the index is a DuckDB file (see duckdb.ts): later starts only read new or changed
  * files. --memory skips the index and holds everything in memory, as before.
  */
@@ -12,8 +15,15 @@ import { fileURLToPath } from 'node:url';
 import type { Store } from './api.ts';
 import { handler } from './server.ts';
 
-const usage = 'usage: s1scope view <file-or-folder>... [--port 4747] [--db .s1scope/index.duckdb] [--memory]';
+const usage = [
+  'usage: s1scope view <file-or-folder>... [--port 4747] [--db .s1scope/index.duckdb] [--memory]',
+  '       s1scope check <file-or-folder>... [--json]',
+].join('\n');
 const [command, ...rest] = process.argv.slice(2);
+if (command === 'check') {
+  const { runCheck } = await import('./check.ts');
+  process.exit(await runCheck(rest));
+}
 if (command !== 'view') {
   console.error(usage);
   process.exit(command ? 1 : 0);
