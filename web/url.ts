@@ -8,9 +8,12 @@
  *   by=tag:variant&a=v0&b=v1     compare by a feature, A and B
  *   t=0.6                        threshold           split=tag:lang        split the overview charts
  *   tab=worse                    table tab           open=<record id>      open one call
+ *   filter=model&filter=tag:variant=v0&filter=tag:variant=v1   sidebar filters: model with every value, variant v0 or v1
  *
  * Everything is optional; values the data does not have fall back to the defaults.
  */
+
+import { formatFilters, parseFilters, type FilterGroup } from './tags.ts';
 
 export type ViewMode = 'overview' | 'compare';
 
@@ -31,9 +34,11 @@ export interface ViewState {
   split?: string;
   tab?: string;
   open?: string;
+  /** Filters in the sidebar, in the order they were added. */
+  filters: FilterGroup[];
 }
 
-export const emptyView = (): ViewState => ({ q: '', f: '', pool: false, run: [], norun: [], view: 'overview' });
+export const emptyView = (): ViewState => ({ q: '', f: '', pool: false, run: [], norun: [], view: 'overview', filters: [] });
 
 /** Text filter: plain text matches as a case-insensitive substring; /…/ is a regular expression. Invalid regex matches nothing. */
 export function matcher(filter: string): (s: string) => boolean {
@@ -69,6 +74,7 @@ export function parseView(hash: string): ViewState {
     split: text('split'),
     tab: text('tab'),
     open: text('open'),
+    filters: parseFilters(p.getAll('filter')),
   };
 }
 
@@ -84,8 +90,9 @@ export function formatView(s: ViewState): string {
   if (s.view !== 'overview') p.set('view', s.view);
   for (const k of ['by', 'a', 'b', 'split', 'tab', 'open'] as const) if (s[k] !== undefined && s[k] !== '') p.set(k, s[k]!);
   if (s.t !== undefined) p.set('t', String(Math.round(s.t * 1000) / 1000));
+  for (const x of formatFilters(s.filters)) p.append('filter', x);
   // Keep / and : readable; URLSearchParams escapes more than a hash needs.
-  return p.toString().replace(/%2F/gi, '/').replace(/%3A/gi, ':');
+  return p.toString().replace(/%2F/gi, '/').replace(/%3A/gi, ':').replace(/%3D/gi, '=');
 }
 
 /** The runs a link selects, and what in it did not match. Without any run parameter: every run. */

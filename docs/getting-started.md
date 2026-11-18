@@ -48,6 +48,7 @@ new or changed files. Options are in [Links and CLI](reference.md#command-line).
 ```sh
 S1SCOPE_DATA=examples/demo npm run dev     # http://127.0.0.1:5173/, with hot reload
 npm test
+npm run test:e2e                            # the page in Chromium; first: npx playwright install chromium
 ```
 
 The dev server uses its own index, `.s1scope/dev.duckdb`, so it can run next to `view`.

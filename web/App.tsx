@@ -7,6 +7,7 @@ import { Histogram, Reliability, Sweep, useColors } from './charts.tsx';
 import { Help } from './Help.tsx';
 import { pageOf } from './nav.ts';
 import { loadOverview } from './overview.ts';
+import { facet, filterKeys, filterRows, toggleValue, type FilterGroup } from './tags.ts';
 import { describeRuns, formatView, matcher, parseView, selectRuns, type ViewState } from './url.ts';
 
 /** The view settings below the question that the address carries (see url.ts). */
@@ -61,6 +62,7 @@ export function App() {
   const [filter, setFilter] = useState(linked.f);
   const [pool, setPool] = useState(linked.pool);
   const [question, setQuestion] = useState(linked.q);
+  const [filterGroups, setFilterGroups] = useState<FilterGroup[]>(linked.filters);
   const [ui, setUiState] = useState<Ui>(() => uiOf(linked));
   const setUi = (patch: Partial<Ui>) => setUiState((u) => ({ ...u, ...patch }));
   // The run filter from the link, kept in the address while the selection still matches it.
@@ -76,6 +78,7 @@ export function App() {
     setFilter(v.f);
     setPool(v.pool);
     setQuestion(v.q);
+    setFilterGroups(v.filters);
     setUiState(uiOf(v));
     setLinkNotes(picked.missing);
   };
@@ -103,9 +106,9 @@ export function App() {
     if (!data || !runs) return;
     const runPart = describeRuns(runs, data.runs.map((r) => r.run), runFilter);
     if (runFilter !== undefined && runPart.runs === undefined) setRunFilter(undefined);
-    const hash = formatView({ q: question, f: filter, pool, ...runPart, ...ui });
+    const hash = formatView({ q: question, f: filter, pool, ...runPart, ...ui, filters: filterGroups });
     if (hash !== location.hash.slice(1)) history.replaceState(null, '', hash ? `#${hash}` : location.pathname);
-  }, [data, runs, runFilter, question, filter, pool, ui]);
+  }, [data, runs, runFilter, question, filter, pool, ui, filterGroups]);
 
   const runList = useMemo(
     (): [string, RunInfo][] =>
@@ -145,6 +148,13 @@ export function App() {
     () => (pooled ? (result?.rows ?? []).filter((r) => r.type === pooledType) : (result?.rows ?? [])),
     [result, pooled, pooledType],
   );
+  // Tags belong to calls, not runs, so the sidebar filters narrow the answers that were loaded.
+  // A filter on something these answers do not have (a tag another question carries) is left aside.
+  const filterable = useMemo(() => filterKeys(selected), [selected]);
+  const shown = useMemo(
+    () => filterRows(selected, filterGroups.filter((g) => filterable.includes(g.key))),
+    [selected, filterGroups, filterable],
+  );
 
   if (error) return <div className="empty">Could not load data: {error}</div>;
   if (!data || !runs) return <div className="empty">Loading…</div>;
@@ -161,6 +171,7 @@ export function App() {
     <div className="layout">
       <aside>
         <RunPicker runList={runList} runs={runs} setRuns={setRuns} />
+        <Filters rows={selected} keys={filterable} groups={filterGroups} setGroups={setFilterGroups} />
         <section className="questions">
           <h2>Questions</h2>
           <input
@@ -214,13 +225,13 @@ export function App() {
         )}
         {rowsError ? (
           <div className="empty">Could not load answers: {rowsError}</div>
-        ) : selected.length ? (
+        ) : shown.length ? (
           <>
             {loading && <div className="loading-bar" aria-label="Loading" />}
             <QuestionView
               key={title}
               title={title}
-              rows={selected}
+              rows={shown}
               pooled={pooled}
               definitions={result?.definitions ?? {}}
               ui={ui}
@@ -231,7 +242,13 @@ export function App() {
           <div className="empty">Loading answers…</div>
         ) : (
           <div className="empty">
-            {!runs.size ? 'No runs selected.' : wanted.length ? 'No answers to this question in the selected runs.' : 'Pick a question on the left.'}
+            {!runs.size
+              ? 'No runs selected.'
+              : selected.length
+                ? 'No answers pass the filters.'
+                : wanted.length
+                  ? 'No answers to this question in the selected runs.'
+                  : 'Pick a question on the left.'}
           </div>
         )}
       </main>
@@ -816,5 +833,118 @@ function RunPicker({
         })}
       </div>
     </section>
+  );
+}
+
+/** Show at most this many values of one feature; a box narrows longer lists. */
+const FILTER_VALUES_SHOWN = 50;
+
+/**
+ * Sidebar filters: pick a feature (model, backend, version, tag:<name>, …) from the list to add it, then tick
+ * the values to keep. Features and values come from the answers loaded for the current question; each value's
+ * count is taken after the other filters.
+ */
+function Filters({
+  rows,
+  keys,
+  groups,
+  setGroups,
+}: {
+  rows: Row[];
+  keys: string[];
+  groups: FilterGroup[];
+  setGroups: (g: FilterGroup[]) => void;
+}) {
+  const addable = keys.filter((k) => !groups.some((g) => g.key === k));
+  // Only the filters these answers can take narrow each other's counts.
+  const active = groups.filter((g) => keys.includes(g.key));
+  const update = (key: string, next: FilterGroup | undefined) =>
+    setGroups(next ? groups.map((g) => (g.key === key ? next : g)) : groups.filter((g) => g.key !== key));
+  return (
+    <section className="tags">
+      <h2>
+        Filters
+        <Help guide="dashboard" section="picking-what-to-look-at" />
+      </h2>
+      <select
+        className="filter"
+        value=""
+        disabled={!rows.length || !addable.length}
+        onChange={(e) => e.target.value && setGroups([...groups, { key: e.target.value }])}
+        aria-label="add a filter"
+      >
+        <option value="">{rows.length ? (addable.length ? '+ filter by…' : 'every feature is added') : 'pick a question to filter its answers'}</option>
+        {(rows.length ? addable : []).map((k) => (
+          <option key={k} value={k}>
+            {k}
+          </option>
+        ))}
+      </select>
+      <div className="taglist">
+        {groups.map((g) => (
+          <FilterGroupBox
+            key={g.key}
+            rows={rows}
+            active={active}
+            group={g}
+            known={keys.includes(g.key)}
+            update={(next) => update(g.key, next)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FilterGroupBox({
+  rows,
+  active,
+  group,
+  known,
+  update,
+}: {
+  rows: Row[];
+  active: FilterGroup[];
+  group: FilterGroup;
+  known: boolean;
+  update: (next: FilterGroup | undefined) => void;
+}) {
+  const values = useMemo(() => (known ? facet(rows, active, group.key) : []), [known, rows, active, group.key]);
+  const [find, setFind] = useState('');
+  const all = values.map(([v]) => v);
+  const on = (v: string) => !group.values || group.values.includes(v);
+  const ticked = all.filter(on).length;
+  const match = matcher(find);
+  const listed = values.filter(([v]) => match(v));
+  return (
+    <div className="taggroup">
+      <div className="taghead">
+        <span className="grow mono" title={group.key}>
+          {group.key}
+        </span>
+        <span className="muted num">{group.values ? `${ticked}/${all.length}` : 'all'}</span>
+        <button className="link" disabled={!group.values} onClick={() => update({ key: group.key })}>
+          all
+        </button>
+        <button className="link" disabled={!!group.values && !group.values.length} onClick={() => update({ key: group.key, values: [] })}>
+          none
+        </button>
+        <button className="remove" title={`remove the ${group.key} filter`} aria-label={`remove the ${group.key} filter`} onClick={() => update(undefined)}>
+          ×
+        </button>
+      </div>
+      {all.length > 8 && <input className="filter" placeholder="find a value, or /regex/" value={find} onChange={(e) => setFind(e.target.value)} />}
+      {listed.slice(0, FILTER_VALUES_SHOWN).map(([v, n]) => (
+        <label key={v} className="check sub">
+          <input type="checkbox" checked={on(v)} onChange={(e) => update(toggleValue(group, all, v, e.target.checked))} />
+          <span className="grow" title={v}>
+            {v}
+          </span>
+          <span className="muted num">{n.toLocaleString()}</span>
+        </label>
+      ))}
+      {listed.length > FILTER_VALUES_SHOWN && <p className="muted sub">{listed.length - FILTER_VALUES_SHOWN} more; narrow them with the box above.</p>}
+      {!known && rows.length > 0 && <p className="muted sub">These answers do not have it; the filter is left aside.</p>}
+    </div>
   );
 }

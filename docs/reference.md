@@ -75,6 +75,7 @@ a value the data does not have falls back to the default, and the page says what
 | `view` | `view=compare` | `overview` (default) or `compare` |
 | `by`, `a`, `b` | `by=model&a=jev-1.12&b=jev-1.13` | compare: the feature to compare by, and the two values |
 | `open` | `open=logs/nightly.jsonl:42` | open one call by its record id |
+| `filter` | `filter=model&filter=tag:variant=v0&filter=tag:variant=v1` | sidebar filters, in sidebar order (repeatable): `filter=<feature>` shows a feature with every value, `filter=<feature>=<value>` keeps that value, `filter=<feature>=` keeps none; features as for `split` |
 
 With no run parameter every run is selected. When `runs` and `run` are both given, the named runs are added to
 the ones the filter matched; `norun` then removes runs from that set.

@@ -17,6 +17,16 @@ answers, and answers with a label. Questions with labels are listed first.
 `/regular expression/`. With a filter set, *Pool all matching* treats every matching question of the most
 common type as one question, for example all the per-category questions of one prompt.
 
+**Filters.** The filters narrow the answers of the question on screen by `model`, `backend`, `version`,
+`question` (when pooled) or any tag, as `tag:<name>`: the same features as [Split by](#split-by). Tags belong to
+single calls (see [the log format](format.md)), so filters work on answers, not on runs. Pick a feature from the
+list to add it; its values appear as checkboxes, each with how many answers it has. A new filter starts with
+every value ticked, which filters nothing. Ticked values of one feature are alternatives; two features narrow
+each other, so `tag:variant` v0 or v1 *and* `model` jev-1.13 keeps both variants' answers from that model. Each
+value's count is taken after the other filters. Answers without a tag have the value `(none)`. *×* removes a
+filter. The filters stay when you pick another question (one on a tag that question's answers lack is left
+aside); the question list's counts ignore them.
+
 ## The two kinds of question
 
 What `p` means and what the threshold does depends on the question type:

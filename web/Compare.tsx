@@ -84,8 +84,8 @@ export function CompareView({
 
   const result = useMemo(() => (a !== undefined && b !== undefined && a !== b ? compare(rows, feature, a, b, t) : undefined), [rows, feature, a, b, t]);
 
-  if (values.length < 2)
-    return <p className="muted note">Only one {feature} here: nothing to compare. Pick another “compare by”, or select more runs on the left.</p>;
+  // With a single value there is nothing to pair up, but "compare by" stays so another feature can be picked.
+  const single = values.length < 2;
 
   const pairs = result?.pairs ?? [];
   const worse = pairs.filter((p) => p.change === 'worse');
@@ -138,32 +138,40 @@ export function CompareView({
             ))}
           </select>
         </label>
-        <label className="side">
-          <span>A</span>
-          <select value={a} onChange={(e) => setPicked({ a: e.target.value, b })}>
-            {values.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button className="link" onClick={() => setPicked({ a: b, b: a })} title="swap A and B">
-          ⇄
-        </button>
-        <label className="side">
-          <span>B</span>
-          <select value={b} onChange={(e) => setPicked({ a, b: e.target.value })}>
-            {values.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </label>
+        {!single && (
+          <>
+            <label className="side">
+              <span>A</span>
+              <select value={a} onChange={(e) => setPicked({ a: e.target.value, b })}>
+                {values.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="link" onClick={() => setPicked({ a: b, b: a })} title="swap A and B">
+              ⇄
+            </button>
+            <label className="side">
+              <span>B</span>
+              <select value={b} onChange={(e) => setPicked({ a, b: e.target.value })}>
+                {values.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
       </div>
 
-      {a === b ? (
+      {single ? (
+        <p className="muted note">
+          Only one {feature} here: nothing to compare. Pick another “compare by”, or widen the runs or filters on the left.
+        </p>
+      ) : a === b ? (
         <p className="muted note">A and B are the same. Pick two different values.</p>
       ) : (
         <>

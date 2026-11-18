@@ -377,6 +377,8 @@ tbody tr.open {
   top: 0;
   right: 0;
   bottom: 0;
+  /* Above the sticky top bar (z-index 10), which would otherwise cover the close button. */
+  z-index: 20;
   width: min(560px, 100vw);
   background: var(--surface-1);
   border-left: 1px solid var(--border);
@@ -572,8 +574,63 @@ pre {
 .check.sub {
   padding-left: 22px;
 }
+
+/* Tag filters, between the runs and the questions */
+.tags {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 0 1 auto;
+  max-height: 32vh;
+}
+.tags h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.taglist {
+  overflow-y: auto;
+  min-height: 0;
+  margin: 0 -6px;
+  padding: 0 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.taghead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.taghead .link {
+  font-size: 12px;
+}
+.taggroup .filter {
+  margin: 2px 0 4px 22px;
+  width: calc(100% - 22px);
+}
+.taggroup p.sub {
+  padding-left: 22px;
+  font-size: 12px;
+}
+.remove {
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 16px;
+  line-height: 1;
+}
+.remove:hover {
+  color: var(--text-primary);
+}
 @media (max-width: 760px) {
   .runs {
+    max-height: 300px;
+  }
+  .tags {
     max-height: 300px;
   }
 }

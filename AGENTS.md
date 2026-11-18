@@ -17,6 +17,7 @@ calibration and run comparisons. It never calls a model and never uploads anythi
 npm install
 npm run build                                   # type-check, build dist/web and dist/src
 npm test                                        # node:test via tsx, test/*.test.ts
+npm run test:e2e                                # builds the page, then drives it in Chromium (test/e2e/)
 npx tsx scripts/make-demo.ts                    # synthetic logs in examples/demo/
 node dist/src/cli.js check examples/demo        # validate logs, exit 1 on errors
 node dist/src/cli.js view examples/demo         # http://127.0.0.1:4747/
@@ -39,6 +40,7 @@ open in one process only; if `view` says "in use", another s1scope has it.
 | `web/` | the React page; `web/url.ts` holds the link parameters |
 | `docs/` | user guides; the page shows them on its Document page |
 | `test/` | `node:test` tests, one file per area |
+| `test/e2e/` | page tests: the built page in Chromium, against the real server on a small fixed log |
 | `scripts/make-demo.ts` | demo data generator |
 | `skills/s1scope/` | skill for agents in other repositories: converter template, example log |
 
@@ -51,6 +53,8 @@ open in one process only; if `view` says "in use", another s1scope has it.
 - The dashboard's "?" buttons link to headings in `docs/`; `test/markdown.test.ts` fails when a heading they use is
   renamed. Update the link in `web/` together with the heading.
 - A new CLI option, link parameter or endpoint is documented in `docs/reference.md` or `docs/api.md`.
+- A change to the page (`web/`) runs `npm run test:e2e` too. A page bug that a click could have caught gets a test
+  there. The first run on a machine needs `npx playwright install chromium`.
 - Commit messages: a short imperative subject, then a blank line and bullet points on what changed.
 
 ## Do not touch
